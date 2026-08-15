@@ -13,7 +13,7 @@ from app.schemas import (
 )
 from app.routers.auth import get_current_user
 from app.routers.knowledge import check_kb_access
-from app.services.rag_service import rag_chat_stream
+from app.services.agent_service import agent_chat_stream
 
 router = APIRouter(tags=["聊天"])
 
@@ -102,8 +102,10 @@ async def chat(
     user: User = Depends(get_current_user),
 ):
     """
-    RAG 流式问答接口。
-    返回 SSE (Server-Sent Events) 流。
+    Agent 问答接口（SSE 流式）。
+    支持工具调用：员工信息 / 考勤 / 订单 / 当前时间 / 知识库检索，
+    模型自主决定工具组合，最终回答流式返回。
+    事件类型：conversation / tools / sources / chunk / done / error
     """
     # 校验知识库访问权限（个人/组织成员）
     await check_kb_access(db, data.kb_id, user.id)
@@ -148,15 +150,15 @@ async def chat(
         # 先发 conversation_id
         yield f"data: {json.dumps({'type': 'conversation', 'conversation_id': conversation_id}, ensure_ascii=False)}\n\n"
 
-        # 创建独立的 db session 供 RAG 管线使用
-        async with async_session_factory() as rag_db:
+        # 创建独立的 db session 供 Agent 管线使用
+        async with async_session_factory() as agent_db:
             try:
-                async for event in rag_chat_stream(rag_db, conversation_id, data.kb_id, data.message):
+                async for event in agent_chat_stream(agent_db, conversation_id, data.kb_id, data.message):
                     yield event
             except Exception as e:
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
             finally:
-                await rag_db.close()
+                await agent_db.close()
 
     return StreamingResponse(
         event_generator(),

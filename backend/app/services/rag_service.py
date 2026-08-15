@@ -46,6 +46,57 @@ def build_context_prompt(sources: List[Dict]) -> str:
     return "\n\n---\n\n".join(context_parts)
 
 
+async def retrieve_context(
+    kb_id: int,
+    user_question: str,
+) -> List[Dict]:
+    """
+    混合检索管线（Agent 的 search_kb 工具与 RAG 流共用）：
+    1. 向量化用户问题
+    2. 多路召回: 向量检索 top-20 + BM25 检索 top-10
+    3. RRF 融合多路结果 top-20
+    4. Cross-Encoder 精排 top-3
+    返回带 score / id / text / metadata 的来源列表（score 已归一化 0-1）
+    """
+    # 1. 向量化用户问题
+    query_embedding = await get_embedding(user_question)
+
+    # 2. 多路召回
+    # 2a. 向量检索 - 召回 top-20 候选（宽松阈值，用于后续精排）
+    dense_results = await vector_service.search_similar_dense_extended(
+        kb_id=kb_id,
+        query_embedding=query_embedding,
+        top_k=20,
+        min_score=0.1,
+    )
+    logger.info(f"向量检索召回 {len(dense_results)} 条")
+
+    # 2b. BM25 关键词检索 - 召回 top-10
+    bm25_results = await bm25_search(kb_id=kb_id, query=user_question, top_k=10)
+    logger.info(f"BM25 检索召回 {len(bm25_results)} 条")
+
+    # 3. RRF 融合多路结果 top-20
+    result_lists = [r for r in [dense_results, bm25_results] if r]
+    if result_lists:
+        fused_results = reciprocal_rank_fusion(result_lists, k=60, top_k=20)
+    else:
+        fused_results = []
+    logger.info(f"RRF 融合后 {len(fused_results)} 条")
+
+    # 4. Cross-Encoder 精排 top-3
+    if fused_results:
+        sources = await rerank_by_cross_encoder(
+            query=user_question,
+            candidates=fused_results,
+            top_k=3,
+        )
+    else:
+        sources = []
+    logger.info(f"Cross-Encoder 精排后 {len(sources)} 条")
+
+    return sources
+
+
 async def rag_chat_stream(
     db: AsyncSession,
     conversation_id: int,
@@ -98,46 +149,13 @@ async def rag_chat_stream(
     except Exception as e:
         logger.warning(f"缓存检查异常，继续正常流程: {e}")
 
-    # 1. 向量化用户问题
+    # 1-4. 混合检索 + 精排（与 Agent 的 search_kb 工具共用同一管线）
     try:
-        query_embedding = await get_embedding(user_question)
+        sources = await retrieve_context(kb_id, user_question)
     except Exception as e:
-        logger.error(f"Embedding 服务异常: {e}")
-        yield _sse_event({"type": "error", "content": f"Embedding 服务异常: {str(e)}"})
+        logger.error(f"检索管线异常: {e}")
+        yield _sse_event({"type": "error", "content": f"检索失败: {str(e)}"})
         return
-
-    # 2. 多路召回
-    # 2a. 向量检索 - 召回 top-20 候选（宽松阈值，用于后续精排）
-    dense_results = await vector_service.search_similar_dense_extended(
-        kb_id=kb_id,
-        query_embedding=query_embedding,
-        top_k=20,
-        min_score=0.1,
-    )
-    logger.info(f"向量检索召回 {len(dense_results)} 条")
-
-    # 2b. BM25 关键词检索 - 召回 top-10
-    bm25_results = await bm25_search(kb_id=kb_id, query=user_question, top_k=10)
-    logger.info(f"BM25 检索召回 {len(bm25_results)} 条")
-
-    # 3. RRF 融合多路结果 top-20
-    result_lists = [r for r in [dense_results, bm25_results] if r]
-    if result_lists:
-        fused_results = reciprocal_rank_fusion(result_lists, k=60, top_k=20)
-    else:
-        fused_results = []
-    logger.info(f"RRF 融合后 {len(fused_results)} 条")
-
-    # 4. Cross-Encoder 精排 top-3
-    if fused_results:
-        sources = await rerank_by_cross_encoder(
-            query=user_question,
-            candidates=fused_results,
-            top_k=3,
-        )
-    else:
-        sources = []
-    logger.info(f"Cross-Encoder 精排后 {len(sources)} 条")
 
     # 4.5 拒答硬阈值：top1 相关度低于阈值 → 判定为知识库外问题，
     #     不调用 LLM（防止编造），直接返回拒答文案

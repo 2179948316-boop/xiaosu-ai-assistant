@@ -60,6 +60,102 @@ async def chat_complete(messages: List[Dict[str, str]], model: str = None) -> st
         return await _ollama_chat_complete(messages, model)
 
 
+async def chat_with_tools(
+    messages: List[Dict],
+    tools: List[Dict],
+    model: str = None,
+) -> Dict:
+    """
+    带工具的非流式调用（Agent 工具阶段使用）。
+    返回统一结构：{"content": str, "tool_calls": [{"id", "name", "arguments": dict}]}
+    Ollama 与 OpenAI 兼容模式的 tool_calls 格式差异在此收敛。
+    """
+    if _is_openai_mode():
+        return await _openai_chat_with_tools(messages, tools, model)
+    return await _ollama_chat_with_tools(messages, tools, model)
+
+
+# ==================== 带工具调用（Agent） ====================
+
+async def _ollama_chat_with_tools(
+    messages: List[Dict],
+    tools: List[Dict],
+    model: str = None,
+) -> Dict:
+    """Ollama 原生 tools 支持：message.tool_calls[].function.{name, arguments}"""
+    model = _get_llm_model(model)
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "stream": False,
+        "options": {
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "num_ctx": 4096,
+        }
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{settings.OLLAMA_BASE_URL}/api/chat",
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    msg = data.get("message", {})
+    tool_calls = []
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        fn = tc.get("function", {})
+        tool_calls.append({
+            "id": f"call_{i}",
+            "name": fn.get("name", ""),
+            "arguments": fn.get("arguments") or {},
+        })
+    return {"content": msg.get("content", ""), "tool_calls": tool_calls}
+
+
+async def _openai_chat_with_tools(
+    messages: List[Dict],
+    tools: List[Dict],
+    model: str = None,
+) -> Dict:
+    """OpenAI 兼容 API：choices[0].message.tool_calls，arguments 为 JSON 字符串"""
+    model = _get_llm_model(model)
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "stream": False,
+        "temperature": 0.7,
+        "max_tokens": 4096,
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{settings.OPENAI_BASE_URL}/chat/completions",
+            json=payload,
+            headers=_get_headers(),
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    message = data["choices"][0]["message"]
+    tool_calls = []
+    for tc in message.get("tool_calls") or []:
+        fn = tc.get("function", {})
+        try:
+            arguments = json.loads(fn.get("arguments") or "{}")
+        except json.JSONDecodeError:
+            arguments = {}
+        tool_calls.append({
+            "id": tc.get("id", ""),
+            "name": fn.get("name", ""),
+            "arguments": arguments,
+        })
+    return {"content": message.get("content") or "", "tool_calls": tool_calls}
+
+
 # ==================== Ollama 模式 ====================
 
 async def _ollama_chat_stream(

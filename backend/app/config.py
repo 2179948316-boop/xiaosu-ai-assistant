@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # 所有检索路径的相关度均已归一化到 0-1（Cross-Encoder 输出经 sigmoid 归一）
     REFUSAL_SCORE_THRESHOLD: float = 0.35
 
+    # Agent 工具调用配置
+    AGENT_MAX_ROUNDS: int = 5            # 工具调用循环最大轮数
+    MOCK_API_BASE: str = "http://127.0.0.1:8000"  # mock 数据服务（工具执行器内部调用）
+
     # 文件上传配置
     UPLOAD_DIR: str = "../data/uploads"
     MAX_FILE_SIZE_MB: int = 50

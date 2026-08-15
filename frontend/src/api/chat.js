@@ -11,11 +11,12 @@ export const deleteConversation = (convId) => api.delete(`/conversations/${convI
  * @param {Object} data - { conversation_id, kb_id, message }
  * @param {Function} onChunk - 收到每个 token 时的回调
  * @param {Function} onSources - 收到来源信息时的回调
+ * @param {Function} onTool - 收到工具调用轨迹时的回调
  * @param {Function} onDone - 完成时的回调
  * @param {Function} onError - 出错时的回调
  * @returns {Function} abort - 调用可中止请求
  */
-export function chatStream(data, { onChunk, onSources, onDone, onError, onConversationId }) {
+export function chatStream(data, { onChunk, onSources, onTool, onDone, onError, onConversationId }) {
   const token = localStorage.getItem('token')
   const controller = new AbortController()
   let doneCalled = false
@@ -75,6 +76,9 @@ export function chatStream(data, { onChunk, onSources, onDone, onError, onConver
                 break
               case 'sources':
                 onSources?.(eventData.sources)
+                break
+              case 'tools':
+                onTool?.(eventData.tool)
                 break
               case 'done':
                 safeOnDone(eventData)

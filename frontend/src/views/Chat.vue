@@ -32,6 +32,7 @@
         :is-streaming="isStreaming"
         :streaming-content="streamingContent"
         :current-sources="currentSources"
+        :current-tools="currentTools"
         @quick-question="sendMessage"
       />
       <ChatInput
@@ -64,6 +65,7 @@ const currentConvId = ref(null)
 const isStreaming = ref(false)
 const streamingContent = ref('')
 const currentSources = ref([])
+const currentTools = ref([])
 const isMobile = ref(false)
 const sidebarVisible = ref(false)
 let abortStream = null
@@ -86,6 +88,7 @@ function handleNewChat() {
   isStreaming.value = false
   streamingContent.value = ''
   currentSources.value = []
+  currentTools.value = []
   // 重置对话状态
   chatStore.resetChat()
   currentConvId.value = null
@@ -101,6 +104,7 @@ async function handleSelectConversation(conv) {
   isStreaming.value = false
   streamingContent.value = ''
   currentSources.value = []
+  currentTools.value = []
 
   currentConvId.value = conv.id
   chatStore.currentConversationId = conv.id
@@ -134,6 +138,7 @@ async function sendMessage(message) {
   isStreaming.value = true
   streamingContent.value = ''
   currentSources.value = []
+  currentTools.value = []
 
   abortStream = chatStream(
     {
@@ -161,22 +166,28 @@ async function sendMessage(message) {
       onSources: (sources) => {
         currentSources.value = sources
       },
+      onTool: (tool) => {
+        currentTools.value.push(tool)
+      },
       onDone: () => {
         if (streamingContent.value) {
           chatStore.addMessage({
             role: 'assistant',
             content: streamingContent.value,
             sources: currentSources.value,
+            tools: currentTools.value,
             created_at: new Date().toISOString(),
           })
         }
         streamingContent.value = ''
         currentSources.value = []
+        currentTools.value = []
         isStreaming.value = false
       },
       onError: (err) => {
         ElMessage.error(err || '生成回复失败')
         isStreaming.value = false
+        currentTools.value = []
       },
     }
   )
@@ -194,11 +205,13 @@ function handleStopGenerate() {
       role: 'assistant',
       content: streamingContent.value + '\n\n*(已停止生成)*',
       sources: currentSources.value,
+      tools: currentTools.value,
       created_at: new Date().toISOString(),
     })
   }
   streamingContent.value = ''
   currentSources.value = []
+  currentTools.value = []
   isStreaming.value = false
 }
 

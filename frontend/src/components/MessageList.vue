@@ -33,6 +33,14 @@
       </div>
       <div class="message-body">
         <div class="message-role">{{ msg.role === 'user' ? '我' : 'AI 助手' }}</div>
+        <!-- 工具调用轨迹（Agent 回答） -->
+        <div v-if="msg.tools && msg.tools.length > 0" class="message-tools">
+          <span v-for="(tool, ti) in msg.tools" :key="ti" class="tool-item">
+            <el-icon><Tools /></el-icon>
+            <span>{{ toolLabel(tool.name) }}</span>
+            <span v-if="toolArgsText(tool)" class="tool-args">{{ toolArgsText(tool) }}</span>
+          </span>
+        </div>
         <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
         <!-- 复制按钮 (仅助手消息) -->
         <div v-if="msg.role === 'assistant' && msg.content" class="message-actions">
@@ -70,6 +78,14 @@
       </div>
       <div class="message-body">
         <div class="message-role">AI 助手</div>
+        <!-- 工具调用轨迹（流式中） -->
+        <div v-if="currentTools.length > 0" class="message-tools">
+          <span v-for="(tool, ti) in currentTools" :key="ti" class="tool-item">
+            <el-icon><Tools /></el-icon>
+            <span>{{ toolLabel(tool.name) }}</span>
+            <span v-if="toolArgsText(tool)" class="tool-args">{{ toolArgsText(tool) }}</span>
+          </span>
+        </div>
         <!-- 来源引用 -->
         <div v-if="currentSources.length > 0" class="message-sources" style="margin-bottom: 8px">
           <div
@@ -115,7 +131,7 @@
 <script setup>
 import { ref, watch, nextTick } from 'vue'
 import {
-  User, Monitor, Document,
+  User, Monitor, Document, Tools,
   ChatLineSquare, Files, Search, List, CopyDocument
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -130,11 +146,38 @@ const props = defineProps({
   streamingContent: { type: String, default: '' },
   // 流式输出中的参考来源
   currentSources: { type: Array, default: () => [] },
+  // 流式输出中的工具调用轨迹
+  currentTools: { type: Array, default: () => [] },
 })
 
 defineEmits(['quick-question'])
 
 const messagesContainer = ref(null)
+
+// 工具中文名映射
+const TOOL_LABELS = {
+  get_employee_info: '查询员工信息',
+  get_attendance: '查询考勤记录',
+  get_orders: '查询订单记录',
+  get_current_time: '获取当前时间',
+  search_kb: '检索知识库',
+}
+
+function toolLabel(name) {
+  return TOOL_LABELS[name] || name
+}
+
+// 工具参数摘要（如：员工 1001 · 2026-08-01 ~ 2026-08-10）
+function toolArgsText(tool) {
+  const args = tool.arguments || {}
+  const parts = []
+  if (args.emp_id != null) parts.push(`员工 ${args.emp_id}`)
+  if (args.query) parts.push(`「${args.query}」`)
+  if (args.start_date) {
+    parts.push(`${args.start_date} ~ ${args.end_date || '至今'}`)
+  }
+  return parts.join(' · ')
+}
 
 // 来源原文弹窗状态
 const sourceDetailVisible = ref(false)
@@ -311,6 +354,35 @@ async function handleCopy(text) {
   animation: blink 1s infinite;
   color: #409eff;
   font-weight: bold;
+}
+
+/* 工具调用轨迹 */
+.message-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tool-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: #f5f3ff;
+  border: 1px solid #e4e0f7;
+  border-radius: 14px;
+  font-size: 12px;
+  color: #6b5db8;
+}
+
+.tool-args {
+  color: #a09bc8;
+  font-size: 11px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @keyframes blink {

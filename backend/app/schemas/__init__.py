@@ -119,6 +119,7 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     sources: Optional[list] = None
+    tool_calls: Optional[list] = None
     created_at: datetime
 
     class Config:
