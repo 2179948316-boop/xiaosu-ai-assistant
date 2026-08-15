@@ -1,0 +1,96 @@
+/* 全局样式 */
+:root {
+  --primary: #409eff;
+  --primary-light: #ecf5ff;
+  --bg-dark: #1a1a2e;
+  --bg-sidebar: #16213e;
+  --bg-chat: #f5f7fa;
+  --text-primary: #303133;
+  --text-secondary: #909399;
+  --border-color: #e4e7ed;
+  --shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-chat);
+}
+
+/* Markdown 内容样式 */
+.markdown-body {
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.markdown-body p {
+  margin: 8px 0;
+}
+
+.markdown-body pre {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.markdown-body code {
+  background: #f0f0f0;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 0.9em;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-body ul, .markdown-body ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid var(--primary);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: #f6f8fa;
+  font-weight: 600;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #909399;
+}
