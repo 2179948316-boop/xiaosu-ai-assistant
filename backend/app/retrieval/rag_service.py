@@ -8,10 +8,10 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.models import Message
 from app.services.embedding_service import get_embedding
-from app.services import vector_service
-from app.services.bm25_service import bm25_search
-from app.services.reranker_service import reciprocal_rank_fusion
-from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+from app.retrieval import vector_service
+from app.retrieval.bm25_service import bm25_search
+from app.retrieval.reranker_service import reciprocal_rank_fusion
+from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
 from app.services.cache_service import get_cached_answer, set_cached_answer
 from app.services.llm_service import chat_stream
 

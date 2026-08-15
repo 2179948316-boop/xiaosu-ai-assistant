@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 import httpx
 
 from app.config import get_settings
-from app.services.rag_service import retrieve_context
+from app.retrieval.rag_service import retrieve_context
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

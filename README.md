@@ -74,10 +74,12 @@ xiaosu-ai-assistant/
 ├── backend/            # FastAPI 后端（uv 管理）
 │   ├── app/
 │   │   ├── routers/    # API 路由（auth/knowledge/documents/chat/organizations）
-│   │   ├── services/   # 业务服务（RAG 检索、LLM、缓存、重排）
+│   │   ├── retrieval/  # RAG 检索管线（向量/BM25/RRF 融合/Cross-Encoder 重排）
+│   │   ├── services/   # 业务服务（LLM、Embedding、Agent 编排、飞书机器人、缓存、文档）
 │   │   ├── models/     # SQLAlchemy 模型
 │   │   └── schemas/    # Pydantic 模型
-│   └── tests/          # pytest 测试（含 Mock LLM 测试）
+│   ├── evaluation/     # RAGAS 评估（测试集生成/评估脚本/结果）
+│   └── tests/          # pytest 测试（含 Mock LLM 测试，pipeline/ 为管线组件测试）
 ├── frontend/           # Vue 3 前端（pnpm 管理）
 ├── scripts/            # 启动 / 测试 / 部署脚本
 ├── docker-compose.yml

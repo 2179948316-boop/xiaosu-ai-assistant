@@ -15,12 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.config import get_settings
 from app.services.embedding_service import get_embedding
-from app.services import vector_service
-from app.services.bm25_service import bm25_search
-from app.services.reranker_service import reciprocal_rank_fusion
-from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+from app.retrieval import vector_service
+from app.retrieval.bm25_service import bm25_search
+from app.retrieval.reranker_service import reciprocal_rank_fusion
+from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
 from app.services.llm_service import chat_complete
-from app.services.rag_service import SYSTEM_PROMPT, build_context_prompt
+from app.retrieval.rag_service import SYSTEM_PROMPT, build_context_prompt
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -54,10 +54,10 @@ async def generate_answer(sources, question):
 async def main():
     kb_id = 2
     max_questions = 4
-    output_path = "evaluation/eval_results_final.json"
+    output_path = "evaluation/results/eval_results_final.json"
 
     # 1. 加载测试集
-    with open("evaluation/test_dataset.json", "r", encoding="utf-8") as f:
+    with open("evaluation/results/test_dataset.json", "r", encoding="utf-8") as f:
         test_data = json.load(f)
     test_data = test_data[:max_questions]
 

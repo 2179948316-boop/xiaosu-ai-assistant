@@ -3,7 +3,7 @@ import re
 import jieba
 from rank_bm25 import BM25Okapi
 from typing import List, Dict, Optional
-from app.services import vector_service
+from app.retrieval import vector_service
 
 
 # 中文停用词表（精简版）

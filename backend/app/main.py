@@ -76,7 +76,7 @@ app.include_router(mock_api.router)
 @app.get("/api/health")
 async def health_check():
     from app.services.cache_service import get_cache_stats
-    from app.services import cross_encoder_reranker as _ce_mod
+    from app.retrieval import cross_encoder_reranker as _ce_mod
     cache_stats = await get_cache_stats()
     return {
         "status": "ok",

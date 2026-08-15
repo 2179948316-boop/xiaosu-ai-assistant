@@ -5,7 +5,7 @@
     python -m evaluation.generate_testset --kb_id 2 --num_samples 20
 
 输出:
-    evaluation/test_dataset.json
+    evaluation/results/test_dataset.json
 """
 import argparse
 import asyncio
@@ -17,7 +17,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app.services import vector_service
+from app.retrieval import vector_service
 from app.services.llm_service import chat_complete
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ async def generate_test_dataset(
     kb_id: int,
     num_samples: int = 20,
     questions_per_chunk: int = 2,
-    output_path: str = "evaluation/test_dataset.json",
+    output_path: str = "evaluation/results/test_dataset.json",
 ):
     """
     自动生成测试数据集:
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument("--kb_id", type=int, required=True, help="知识库 ID")
     parser.add_argument("--num_samples", type=int, default=20, help="采样数量")
     parser.add_argument("--questions_per_chunk", type=int, default=2)
-    parser.add_argument("--output", type=str, default="evaluation/test_dataset.json")
+    parser.add_argument("--output", type=str, default="evaluation/results/test_dataset.json")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)

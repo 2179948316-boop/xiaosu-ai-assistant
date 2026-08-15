@@ -25,23 +25,23 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_empty_candidates(self):
         """空候选列表返回空"""
-        from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+        from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
         result = await rerank_by_cross_encoder("查询", [], top_k=3)
         assert result == []
 
     @pytest.mark.asyncio
     async def test_fewer_than_top_k(self, sample_candidates):
         """候选数量少于 top_k 时直接返回"""
-        from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+        from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
         result = await rerank_by_cross_encoder("查询", sample_candidates[:2], top_k=3)
         assert len(result) == 2
 
     @pytest.mark.asyncio
     async def test_fallback_when_model_unavailable(self, sample_candidates):
         """Cross-Encoder 不可用时降级为 Bi-Encoder"""
-        from app.services.cross_encoder_reranker import rerank_by_cross_encoder
-        with patch("app.services.cross_encoder_reranker._load_cross_encoder", return_value=None):
-            with patch("app.services.reranker_service.rerank_by_embedding") as mock_bi:
+        from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
+        with patch("app.retrieval.cross_encoder_reranker._load_cross_encoder", return_value=None):
+            with patch("app.retrieval.reranker_service.rerank_by_embedding") as mock_bi:
                 mock_bi.return_value = sample_candidates[:3]
                 result = await rerank_by_cross_encoder("查询", sample_candidates, top_k=3)
                 mock_bi.assert_called_once()
@@ -50,11 +50,11 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_fallback_on_predict_failure(self, sample_candidates):
         """模型推理失败时降级为 Bi-Encoder"""
-        from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+        from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
         mock_model = MagicMock()
         mock_model.predict.side_effect = RuntimeError("OOM")
-        with patch("app.services.cross_encoder_reranker._load_cross_encoder", return_value=mock_model):
-            with patch("app.services.reranker_service.rerank_by_embedding") as mock_bi:
+        with patch("app.retrieval.cross_encoder_reranker._load_cross_encoder", return_value=mock_model):
+            with patch("app.retrieval.reranker_service.rerank_by_embedding") as mock_bi:
                 mock_bi.return_value = sample_candidates[:3]
                 result = await rerank_by_cross_encoder("查询", sample_candidates, top_k=3)
                 mock_bi.assert_called_once()
@@ -62,11 +62,11 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_successful_rerank(self, sample_candidates):
         """正常推理时按 rerank_score 降序排列"""
-        from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+        from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
         mock_model = MagicMock()
         # 返回倒序分数，验证排序逻辑
         mock_model.predict.return_value = [0.1 * i for i in range(10)]
-        with patch("app.services.cross_encoder_reranker._load_cross_encoder", return_value=mock_model):
+        with patch("app.retrieval.cross_encoder_reranker._load_cross_encoder", return_value=mock_model):
             result = await rerank_by_cross_encoder("查询", sample_candidates, top_k=3)
             assert len(result) == 3
             # 分数应降序
@@ -80,16 +80,16 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_top_k_respected(self, sample_candidates):
         """返回结果数量等于 top_k"""
-        from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+        from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
         mock_model = MagicMock()
         mock_model.predict.return_value = [0.5] * 10
-        with patch("app.services.cross_encoder_reranker._load_cross_encoder", return_value=mock_model):
+        with patch("app.retrieval.cross_encoder_reranker._load_cross_encoder", return_value=mock_model):
             result = await rerank_by_cross_encoder("查询", sample_candidates, top_k=5)
             assert len(result) == 5
 
     def test_health_check_initial_state(self):
         """初始状态下 health check 应反映加载状态"""
-        from app.services.cross_encoder_reranker import is_cross_encoder_loaded, get_model_name
+        from app.retrieval.cross_encoder_reranker import is_cross_encoder_loaded, get_model_name
         # 如果之前没加载过，应返回 False
         # 注意：如果其他测试已触发加载，状态可能不同
         loaded = is_cross_encoder_loaded()

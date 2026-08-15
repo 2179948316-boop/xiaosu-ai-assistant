@@ -1,6 +1,6 @@
 """BM25 服务单元测试 - 分词与检索逻辑"""
 import pytest
-from app.services.bm25_service import tokenize, BM25Index
+from app.retrieval.bm25_service import tokenize, BM25Index
 
 
 class TestTokenize:

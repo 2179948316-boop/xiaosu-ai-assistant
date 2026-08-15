@@ -5,7 +5,7 @@
     python -m evaluation.run_evaluation --kb_id 2
 
 输出:
-    evaluation/eval_results.json
+    evaluation/results/eval_results.json
 
 指标:
     - context_precision: 检索到的上下文与答案的精确度
@@ -26,12 +26,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.config import get_settings
 from app.services.embedding_service import get_embedding
-from app.services import vector_service
-from app.services.bm25_service import bm25_search
-from app.services.reranker_service import reciprocal_rank_fusion
-from app.services.cross_encoder_reranker import rerank_by_cross_encoder
+from app.retrieval import vector_service
+from app.retrieval.bm25_service import bm25_search
+from app.retrieval.reranker_service import reciprocal_rank_fusion
+from app.retrieval.cross_encoder_reranker import rerank_by_cross_encoder
 from app.services.llm_service import chat_complete
-from app.services.rag_service import SYSTEM_PROMPT, build_context_prompt
+from app.retrieval.rag_service import SYSTEM_PROMPT, build_context_prompt
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -77,8 +77,8 @@ async def generate_answer(sources: List[Dict], question: str) -> str:
 
 async def run_evaluation(
     kb_id: int,
-    test_dataset_path: str = "evaluation/test_dataset.json",
-    output_path: str = "evaluation/eval_results.json",
+    test_dataset_path: str = "evaluation/results/test_dataset.json",
+    output_path: str = "evaluation/results/eval_results.json",
     max_questions: int = None,
 ):
     """
@@ -222,8 +222,8 @@ async def run_evaluation(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RAG 系统 RAGAS 评估")
     parser.add_argument("--kb_id", type=int, required=True)
-    parser.add_argument("--testset", type=str, default="evaluation/test_dataset.json")
-    parser.add_argument("--output", type=str, default="evaluation/eval_results.json")
+    parser.add_argument("--testset", type=str, default="evaluation/results/test_dataset.json")
+    parser.add_argument("--output", type=str, default="evaluation/results/eval_results.json")
     parser.add_argument("--max_questions", type=int, default=None, help="限制评估问题数")
     args = parser.parse_args()
 

@@ -18,7 +18,7 @@ async def rebuild_kb():
     from app.utils.file_parser import parse_file, get_file_type
     from app.utils.text_splitter import split_text
     from app.services.embedding_service import get_embeddings
-    from app.services import vector_service
+    from app.retrieval import vector_service
 
     kb_id = 2
     user_id = 1
@@ -92,7 +92,7 @@ async def run_generate_testset(kb_id=2, num_samples=10):
         kb_id=kb_id,
         num_samples=num_samples,
         questions_per_chunk=2,
-        output_path="evaluation/test_dataset.json",
+        output_path="evaluation/results/test_dataset.json",
     )
 
 
@@ -104,8 +104,8 @@ async def run_eval(kb_id=2, max_questions=8):
     print(f"{'='*60}")
     await run_evaluation(
         kb_id=kb_id,
-        test_dataset_path="evaluation/test_dataset.json",
-        output_path="evaluation/eval_results.json",
+        test_dataset_path="evaluation/results/test_dataset.json",
+        output_path="evaluation/results/eval_results.json",
         max_questions=max_questions,
     )
 

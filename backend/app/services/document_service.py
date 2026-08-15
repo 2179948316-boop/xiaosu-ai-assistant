@@ -12,8 +12,8 @@ from app.models import Document, KnowledgeBase
 from app.utils.file_parser import parse_file, get_file_type
 from app.utils.text_splitter import split_text
 from app.services.embedding_service import get_embeddings
-from app.services import vector_service
-from app.services import bm25_service
+from app.retrieval import vector_service
+from app.retrieval import bm25_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

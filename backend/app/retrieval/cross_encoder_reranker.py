@@ -92,7 +92,7 @@ async def rerank_by_cross_encoder(
 
     if model is None:
         logger.warning("Cross-Encoder 不可用，降级为 Bi-Encoder 重排序")
-        from app.services.reranker_service import rerank_by_embedding
+        from app.retrieval.reranker_service import rerank_by_embedding
         return await rerank_by_embedding(query, candidates, top_k)
 
     try:
@@ -129,7 +129,7 @@ async def rerank_by_cross_encoder(
 
     except Exception as e:
         logger.error(f"Cross-Encoder 推理失败: {e}，降级为 Bi-Encoder")
-        from app.services.reranker_service import rerank_by_embedding
+        from app.retrieval.reranker_service import rerank_by_embedding
         return await rerank_by_embedding(query, candidates, top_k)
 
 

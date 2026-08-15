@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models import User, KnowledgeBase, OrgMember, Organization
 from app.schemas import KBCreate, KBResponse
 from app.routers.auth import get_current_user
-from app.services import vector_service
+from app.retrieval import vector_service
 
 router = APIRouter(prefix="/api/knowledge-bases", tags=["知识库"])
 

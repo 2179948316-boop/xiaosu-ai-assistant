@@ -1,6 +1,6 @@
 """Reranker 服务单元测试 - RRF 融合与重排序逻辑"""
 import pytest
-from app.services.reranker_service import reciprocal_rank_fusion
+from app.retrieval.reranker_service import reciprocal_rank_fusion
 
 
 class TestRRF:

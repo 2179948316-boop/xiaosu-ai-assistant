@@ -16,8 +16,8 @@ settings = get_settings()
 
 
 async def rerun_ragas(
-    results_path: str = "evaluation/eval_results.json",
-    output_path: str = "evaluation/eval_results_final.json",
+    results_path: str = "evaluation/results/eval_results.json",
+    output_path: str = "evaluation/results/eval_results_final.json",
 ):
     # 加载已有结果
     with open(results_path, "r", encoding="utf-8") as f:
@@ -36,7 +36,7 @@ async def rerun_ragas(
         contexts.append([""])  # 会从 test_dataset 补
 
     # 从 test_dataset 获取完整 contexts
-    with open("evaluation/test_dataset.json", "r", encoding="utf-8") as f:
+    with open("evaluation/results/test_dataset.json", "r", encoding="utf-8") as f:
         test_data = json.load(f)
 
     for i, item in enumerate(prev["per_question"]):
