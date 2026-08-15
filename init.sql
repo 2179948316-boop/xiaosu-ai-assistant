@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role VARCHAR(20) NOT NULL COMMENT 'user/assistant/system',
     content TEXT NOT NULL,
     sources JSON COMMENT 'RAG检索来源 [{doc, chunk, score}]',
+    tool_calls JSON COMMENT 'Agent工具调用记录 [{tool, arguments, result}]',
     token_count INT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE

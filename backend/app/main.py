@@ -22,6 +22,14 @@ async def lifespan(app: FastAPI):
     base_dir = os.path.dirname(os.path.dirname(__file__))
     os.makedirs(os.path.join(base_dir, "data", "uploads"), exist_ok=True)
     os.makedirs(os.path.join(base_dir, "data", "chroma_db"), exist_ok=True)
+
+    # 确保数据库结构最新（建表 + 旧库补列），失败不阻断启动
+    try:
+        from app.database import ensure_schema
+        await ensure_schema()
+    except Exception as e:
+        print(f"⚠️ 数据库结构检查失败（应用继续启动）: {e}")
+
     print(f"🚀 {settings.APP_NAME} 启动成功")
     print(f"📡 Ollama: {settings.OLLAMA_BASE_URL}")
     print(f"🤖 LLM: {settings.LLM_MODEL}")
