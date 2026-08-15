@@ -1,6 +1,7 @@
 """文档服务 - 处理文档上传、解析、切片的完整流程"""
 import os
 import shutil
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from fastapi import UploadFile
@@ -15,6 +16,7 @@ from app.services import vector_service
 from app.services import bm25_service
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 async def process_document_upload(
@@ -25,6 +27,7 @@ async def process_document_upload(
 ) -> Document:
     """
     完整的文档处理流程:
+    0. 增量更新：同名文档先删旧版本（向量 + 记录），再按新文档处理
     1. 保存文件到磁盘
     2. 创建文档记录
     3. 解析文件内容
@@ -38,6 +41,28 @@ async def process_document_upload(
 
     file_type = get_file_type(file.filename)
     file_path = os.path.join(upload_dir, file.filename)
+
+    # 0. 增量更新：同知识库下同名文档视为版本替换
+    #    先删除旧文档的向量与数据库记录（磁盘文件由下方写入直接覆盖），
+    #    保证重复上传同名文件时索引只保留最新版本
+    existing_result = await db.execute(
+        select(Document).where(
+            Document.kb_id == kb_id,
+            Document.filename == file.filename,
+        )
+    )
+    old_docs = list(existing_result.scalars().all())
+    for old_doc in old_docs:
+        await vector_service.delete_document_chunks(kb_id, old_doc.id)
+        await db.execute(
+            update(KnowledgeBase)
+            .where(KnowledgeBase.id == kb_id)
+            .values(document_count=KnowledgeBase.document_count - 1)
+        )
+        await db.delete(old_doc)
+    if old_docs:
+        await db.commit()
+        logger.info(f"增量更新：替换同名文档 '{file.filename}' (kb_id={kb_id}, 旧版本 {[d.id for d in old_docs]})")
 
     # 1. 保存文件
     content = await file.read()
