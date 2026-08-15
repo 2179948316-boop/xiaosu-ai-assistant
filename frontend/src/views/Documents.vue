@@ -35,7 +35,7 @@
         :on-change="handleFileChange"
         :file-list="fileList"
         :limit="5"
-        accept=".pdf,.docx,.html,.htm,.txt"
+        accept=".pdf,.docx,.html,.htm,.txt,.md,.markdown"
         multiple
         drag
         class="upload-dragger"
@@ -46,7 +46,7 @@
         </div>
         <template #tip>
           <div class="el-upload__tip">
-            支持 PDF、DOCX、HTML、TXT 格式，单个文件不超过 50MB
+            支持 PDF、DOCX、HTML、TXT、Markdown 格式，单个文件不超过 50MB；同名文件重复上传将覆盖旧版本
           </div>
         </template>
       </el-upload>

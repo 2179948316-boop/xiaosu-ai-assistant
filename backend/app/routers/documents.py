@@ -24,13 +24,14 @@ async def upload_document(
     """
     上传文档到知识库。
     自动执行：解析 → 切片 → 向量化 → 存储
-    支持格式：PDF, DOCX, HTML, TXT
+    支持格式：PDF, DOCX, HTML, TXT, Markdown
+    同名文件重复上传将替换旧版本（增量更新）
     权限：知识库所有者或所属组织成员均可上传
     """
     # 校验知识库访问权限（个人/组织成员）
     await check_kb_access(db, kb_id, user.id)
 
-    allowed_types = {"pdf", "docx", "html", "htm", "txt"}
+    allowed_types = {"pdf", "docx", "html", "htm", "txt", "md", "markdown"}
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if ext not in allowed_types:
         raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}，支持: {', '.join(allowed_types)}")

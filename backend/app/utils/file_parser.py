@@ -1,4 +1,5 @@
-"""文档解析工具 - 支持 PDF/DOCX/HTML/TXT"""
+"""文档解析工具 - 支持 PDF/DOCX/HTML/TXT/Markdown"""
+import re
 import os
 from typing import Optional
 
@@ -11,6 +12,8 @@ def parse_file(file_path: str, file_type: str) -> str:
         "html": _parse_html,
         "htm": _parse_html,
         "txt": _parse_txt,
+        "md": _parse_md,
+        "markdown": _parse_md,
     }
     parser = parsers.get(file_type.lower())
     if not parser:
@@ -62,6 +65,30 @@ def _parse_txt(file_path: str) -> str:
         except (UnicodeDecodeError, UnicodeError):
             continue
     raise ValueError("无法识别文件编码")
+
+
+def _parse_md(file_path: str) -> str:
+    """解析 Markdown：读取原文并去除语法符号，保留纯文本内容"""
+    text = _parse_txt(file_path)
+
+    # 代码块：保留内容，去掉围栏
+    text = re.sub(r"```[a-zA-Z0-9]*\n?", "", text)
+    # 图片：![alt](url) -> alt
+    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    # 链接：[text](url) -> text
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    # 标题井号
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    # 加粗 / 斜体 / 行内代码
+    text = re.sub(r"(\*\*|__|\*|_|`)([^*_`\n]+)\1", r"\2", text)
+    # 行首引用符与列表符
+    text = re.sub(r"^>\s?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+    # 表格竖线
+    text = re.sub(r"\|", " ", text)
+    text = re.sub(r"^\s*:?-{3,}:?\s*$", "", text, flags=re.MULTILINE)
+
+    return text
 
 
 def get_file_type(filename: str) -> str:
