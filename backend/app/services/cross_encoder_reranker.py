@@ -102,12 +102,17 @@ async def rerank_by_cross_encoder(
         # 在线程池中执行同步推理，避免阻塞 async 事件循环
         scores = await asyncio.to_thread(model.predict, pairs)
 
+        # Cross-Encoder 输出为原始 logits（无界），用 sigmoid 归一化到 0-1，
+        # 与向量检索/BM25 的相关度语义保持一致，也便于与拒答阈值比较
+        import math
+        normalized = [1.0 / (1.0 + math.exp(-float(s))) for s in scores]
+
         # 附加分数并排序
         scored = []
         for i, candidate in enumerate(candidates):
             scored.append({
                 **candidate,
-                "rerank_score": round(float(scores[i]), 4),
+                "rerank_score": round(normalized[i], 4),
                 "original_score": candidate.get("score", 0),
             })
 

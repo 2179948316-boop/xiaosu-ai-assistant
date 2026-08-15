@@ -45,10 +45,16 @@
             复制
           </el-button>
         </div>
-        <!-- 来源引用 -->
+        <!-- 来源引用（点击查看原文片段） -->
         <div v-if="msg.sources && msg.sources.length > 0" class="message-sources">
           <el-divider content-position="left">参考来源</el-divider>
-          <div v-for="(source, si) in msg.sources" :key="si" class="source-item">
+          <div
+            v-for="(source, si) in msg.sources"
+            :key="si"
+            class="source-item source-clickable"
+            title="点击查看原文片段"
+            @click="showSourceDetail(source)"
+          >
             <el-icon><Document /></el-icon>
             <span class="source-name">{{ source.filename }}</span>
             <el-tag size="small" type="info">相关度 {{ (source.score * 100).toFixed(0) }}%</el-tag>
@@ -66,7 +72,13 @@
         <div class="message-role">AI 助手</div>
         <!-- 来源引用 -->
         <div v-if="currentSources.length > 0" class="message-sources" style="margin-bottom: 8px">
-          <div v-for="(source, si) in currentSources" :key="si" class="source-item">
+          <div
+            v-for="(source, si) in currentSources"
+            :key="si"
+            class="source-item source-clickable"
+            title="点击查看原文片段"
+            @click="showSourceDetail(source)"
+          >
             <el-icon><Document /></el-icon>
             <span class="source-name">{{ source.filename }}</span>
             <el-tag size="small" type="info">相关度 {{ (source.score * 100).toFixed(0) }}%</el-tag>
@@ -77,6 +89,26 @@
         <span class="typing-cursor">|</span>
       </div>
     </div>
+
+    <!-- 来源原文片段弹窗 -->
+    <el-dialog v-model="sourceDetailVisible" title="参考来源原文" width="560px">
+      <div v-if="activeSource" class="source-detail">
+        <div class="source-detail-meta">
+          <div><span class="meta-label">文档：</span>{{ activeSource.filename }}</div>
+          <div>
+            <span class="meta-label">切片位置：</span>
+            第 {{ (activeSource.chunk_index ?? 0) + 1 }} 段
+            <span v-if="activeSource.chunk_id" class="chunk-id">({{ activeSource.chunk_id }})</span>
+          </div>
+          <div><span class="meta-label">相关度：</span>{{ (activeSource.score * 100).toFixed(0) }}%</div>
+        </div>
+        <el-divider />
+        <div class="source-detail-text">{{ activeSource.text_preview || '（无原文片段）' }}</div>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="sourceDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -103,6 +135,15 @@ const props = defineProps({
 defineEmits(['quick-question'])
 
 const messagesContainer = ref(null)
+
+// 来源原文弹窗状态
+const sourceDetailVisible = ref(false)
+const activeSource = ref(null)
+
+function showSourceDetail(source) {
+  activeSource.value = source
+  sourceDetailVisible.value = true
+}
 
 // Markdown 渲染
 function renderMarkdown(text) {
@@ -299,6 +340,45 @@ async function handleCopy(text) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.source-clickable {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.source-clickable:hover {
+  background: #d9edff;
+  box-shadow: 0 1px 4px rgba(64, 158, 255, 0.2);
+}
+
+/* 来源详情弹窗 */
+.source-detail-meta {
+  font-size: 14px;
+  color: #303133;
+  line-height: 2;
+}
+
+.meta-label {
+  color: #909399;
+}
+
+.chunk-id {
+  color: #c0c4cc;
+  font-size: 12px;
+}
+
+.source-detail-text {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #303133;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 /* 消息操作按钮 */

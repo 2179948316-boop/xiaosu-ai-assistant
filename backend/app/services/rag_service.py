@@ -83,6 +83,8 @@ async def rag_chat_stream(
                     content=answer,
                     sources=[{
                         "filename": s.get("filename", "未知"),
+                        "chunk_id": s.get("chunk_id", ""),
+                        "chunk_index": s.get("chunk_index", 0),
                         "score": s.get("score", 0),
                         "text_preview": s.get("text_preview", ""),
                     } for s in cached.get("sources", [])] or None,
@@ -137,14 +139,39 @@ async def rag_chat_stream(
         sources = []
     logger.info(f"Cross-Encoder 精排后 {len(sources)} 条")
 
+    # 4.5 拒答硬阈值：top1 相关度低于阈值 → 判定为知识库外问题，
+    #     不调用 LLM（防止编造），直接返回拒答文案
+    top1_score = sources[0]["score"] if sources else 0.0
+    if top1_score < settings.REFUSAL_SCORE_THRESHOLD:
+        refusal = "文档里没找到相关内容，换个问法试试。也可以让管理员补充相关文档后再问我。"
+        logger.info(
+            f"拒答硬阈值触发: top1={top1_score} < {settings.REFUSAL_SCORE_THRESHOLD} "
+            f"(kb_id={kb_id}, question={user_question[:50]})"
+        )
+        yield _sse_event({"type": "chunk", "content": refusal})
+        # 拒答回复同样写入对话历史
+        try:
+            db.add(Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=refusal,
+                sources=None,
+            ))
+            await db.commit()
+        except Exception as save_err:
+            logger.error(f"保存拒答回复失败: {save_err}")
+        yield _sse_event({"type": "done", "content": refusal, "refused": True})
+        return
+
     # 5. 发送来源信息
     if sources:
         source_info = [
             {
                 "filename": s["metadata"].get("filename", "未知"),
+                "chunk_id": s.get("id", ""),
                 "chunk_index": s["metadata"].get("chunk_index", 0),
                 "score": s["score"],
-                "text_preview": s["text"][:100],
+                "text_preview": s["text"][:150],
                 "retrieval_method": s.get("retrieval_method", "hybrid"),
             }
             for s in sources
@@ -184,8 +211,10 @@ async def rag_chat_stream(
                     content=full_response,
                     sources=[{
                         "filename": s["metadata"].get("filename", "未知"),
+                        "chunk_id": s.get("id", ""),
+                        "chunk_index": s["metadata"].get("chunk_index", 0),
                         "score": s["score"],
-                        "text_preview": s["text"][:200],
+                        "text_preview": s["text"][:150],
                     } for s in sources] if sources else None,
                 )
                 db.add(assistant_msg)
@@ -202,9 +231,10 @@ async def rag_chat_stream(
         try:
             cache_sources = [{
                 "filename": s["metadata"].get("filename", "未知"),
+                "chunk_id": s.get("id", ""),
                 "chunk_index": s["metadata"].get("chunk_index", 0),
                 "score": s["score"],
-                "text_preview": s["text"][:100],
+                "text_preview": s["text"][:150],
                 "retrieval_method": s.get("retrieval_method", "hybrid"),
             } for s in sources]
             await set_cached_answer(user_question, kb_id, full_response, cache_sources)

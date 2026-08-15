@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     REDIS_CACHE_TTL: int = 3600          # 缓存 TTL（秒），默认 1 小时
     REDIS_CACHE_ENABLED: bool = True     # 缓存总开关
 
+    # RAG 问答配置
+    # 拒答硬阈值：精排后 top1 相关度低于该值时不调用 LLM，直接返回拒答文案
+    # 所有检索路径的相关度均已归一化到 0-1（Cross-Encoder 输出经 sigmoid 归一）
+    REFUSAL_SCORE_THRESHOLD: float = 0.35
+
     # 文件上传配置
     UPLOAD_DIR: str = "../data/uploads"
     MAX_FILE_SIZE_MB: int = 50
