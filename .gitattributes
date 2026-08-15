@@ -1,0 +1,2 @@
+# 保证 shell 脚本在任何平台都是 LF（CRLF 会导致 bash 报错）
+*.sh text eol=lf

@@ -1,4 +1,4 @@
-"""RAG 企业知识库问答系统 - FastAPI 入口"""
+"""小苏 - 公司内部 AI 助手后端入口"""
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,9 +7,13 @@ import traceback
 import os
 
 from app.config import get_settings
+from app.log_config import setup_logging
 from app.routers import auth, knowledge, documents, chat, organizations
 
 settings = get_settings()
+
+# 初始化日志：console + logs/app.log
+setup_logging()
 
 
 @asynccontextmanager
@@ -30,7 +34,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0",
-    description="基于 RAG 的企业知识库问答系统",
+    description="公司内部 AI 助手小苏 - RAG 知识库 + Agent 工具调用",
     lifespan=lifespan,
 )
 

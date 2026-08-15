@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # 应用配置
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
-    APP_NAME: str = "RAG知识库问答系统"
+    APP_NAME: str = "小苏 - 公司内部 AI 助手"
 
     # 数据库配置
     DB_HOST: str = "localhost"
@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # 容忍 .env 中的额外变量（如 Docker 注入的 REDIS_HOST）
 
 
 @lru_cache()
