@@ -21,6 +21,20 @@ services:
       - backend
     restart: unless-stopped
 
+  bot:
+    build: ./backend
+    command: python bot_service.py
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - backend
+      - mysql
+      - redis
+    restart: unless-stopped
+
   mysql:
     image: mysql:8.0
     ports:

@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     AGENT_MAX_ROUNDS: int = 5            # 工具调用循环最大轮数
     MOCK_API_BASE: str = "http://127.0.0.1:8000"  # mock 数据服务（工具执行器内部调用）
 
+    # 飞书机器人配置（Phase 4）
+    FEISHU_APP_ID: str = ""              # 飞书开放平台应用 App ID
+    FEISHU_APP_SECRET: str = ""          # 飞书开放平台应用 App Secret
+    FEISHU_ENCRYPT_KEY: str = ""         # 事件订阅 Encrypt Key（长连接模式可留空）
+    FEISHU_VERIFICATION_TOKEN: str = ""  # 事件订阅 Verification Token（长连接模式可留空）
+    FEISHU_DEFAULT_KB_ID: int = 0        # 机器人默认查询的知识库 ID（0=自动选第一个）
+    BOT_IDEMPOTENCY_TTL: int = 300       # 消息幂等去重窗口（秒）
+
     # 文件上传配置
     UPLOAD_DIR: str = "../data/uploads"
     MAX_FILE_SIZE_MB: int = 50

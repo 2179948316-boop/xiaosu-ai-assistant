@@ -71,3 +71,24 @@ async def ensure_schema() -> None:
         except Exception as e:
             # messages 表不存在等异常由 create_all 兜底，此处仅记录
             logger.warning(f"ensure_schema 补列检查跳过: {e}")
+
+        # 3. 检查 conversations.open_id / chat_id 列（v1.2 飞书会话隔离新增）
+        def _conversation_columns(sync_conn) -> set:
+            return {c["name"] for c in inspect(sync_conn).get_columns("conversations")}
+
+        try:
+            conv_cols = await conn.run_sync(_conversation_columns)
+            if "open_id" not in conv_cols:
+                await conn.execute(
+                    text("ALTER TABLE conversations ADD COLUMN open_id VARCHAR(64) NULL")
+                )
+                await conn.execute(text("CREATE INDEX ix_conversations_open_id ON conversations (open_id)"))
+                logger.info("数据库迁移: conversations 表新增 open_id 列")
+            if "chat_id" not in conv_cols:
+                await conn.execute(
+                    text("ALTER TABLE conversations ADD COLUMN chat_id VARCHAR(64) NULL")
+                )
+                await conn.execute(text("CREATE INDEX ix_conversations_chat_id ON conversations (chat_id)"))
+                logger.info("数据库迁移: conversations 表新增 chat_id 列")
+        except Exception as e:
+            logger.warning(f"ensure_schema conversations 补列检查跳过: {e}")

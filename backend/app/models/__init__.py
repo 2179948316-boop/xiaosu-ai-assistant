@@ -87,6 +87,9 @@ class Conversation(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     kb_id = Column(BigInteger, ForeignKey("knowledge_bases.id", ondelete="SET NULL"))
+    # 飞书 IM 会话隔离（Phase 4）：open_id=飞书用户，chat_id=飞书 open_chat_id（群/单聊）
+    open_id = Column(String(64), index=True)
+    chat_id = Column(String(64), index=True)
     title = Column(String(255))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

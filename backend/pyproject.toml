@@ -37,6 +37,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "aiofiles>=24.1.0",
+    "lark-oapi>=1.4.0",
 ]
 
 [dependency-groups]

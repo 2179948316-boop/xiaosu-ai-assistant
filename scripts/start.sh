@@ -26,7 +26,16 @@ else
   # 前端
   (cd frontend && pnpm dev) &
   FRONTEND_PID=$!
-  trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT
+  BOT_PID=""
+  # 飞书机器人（配置了凭据才启动）
+  if grep -qE '^FEISHU_APP_ID=.+' backend/.env; then
+    (cd backend && sleep 3 && uv run python bot_service.py) &
+    BOT_PID=$!
+    echo "🤖 飞书机器人已启动"
+  else
+    echo "ℹ️  未配置 FEISHU_APP_ID，跳过飞书机器人"
+  fi
+  trap "kill $BACKEND_PID $FRONTEND_PID $BOT_PID 2>/dev/null || true" EXIT
   echo "✅ 后端 http://localhost:8000/docs  前端 http://localhost:5173"
   wait
 fi
