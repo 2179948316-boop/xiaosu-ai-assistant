@@ -58,8 +58,8 @@ flowchart TB
 | 检索 | ChromaDB 向量库 + rank-bm25 + Cross-Encoder 重排（RAGAS 评估） |
 | LLM | Ollama（本地免费）或任意 OpenAI 兼容 API（MiniMax / DeepSeek / SiliconFlow / OpenAI） |
 | IM | 飞书开放平台 + lark-oapi（WebSocket 长连接，无需公网回调） |
-| 中间件 | MySQL 8.0（业务数据）+ Redis（语义缓存 / 幂等去重） |
-| 部署 | Docker Compose 一键启动（前端 + 后端 + MySQL + Redis + Chroma） |
+| 中间件 | MySQL 8.0（业务数据）+ Redis（语义缓存 / 幂等去重）+ ChromaDB（嵌入式，持久化于 `data/chroma_db`） |
+| 部署 | Docker Compose 一键启动（前端 + 后端 + MySQL + Redis） |
 
 ## 快速开始
 
@@ -110,7 +110,7 @@ pnpm dev
 **应用配置**（一次性）：
 
 1. 飞书开放平台 [open.feishu.cn](https://open.feishu.cn) → 创建企业自建应用「小苏」→ 开通机器人能力
-2. 权限管理添加：`im:message`（接收群聊 @ / 私聊消息）、`im:message:send_as_bot`（以机器人身份发消息）、`im:resource`（读取消息中的图片等资源）
+2. 权限管理添加：`im:message.group_at_msg:readonly`（接收群聊 @ 消息）、`im:message.p2p_msg:readonly`（接收私聊消息）、`im:message.send_as_bot`（以机器人身份发消息）、`im:resource`（读取消息中的图片等资源）
 3. 事件订阅：添加事件 `im.message.receive_v1`，订阅方式选**长连接**（WebSocket，无需公网回调地址）
 4. 把 `App ID` / `App Secret` 填入 `backend/.env` 的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（`FEISHU_ENCRYPT_KEY` / `FEISHU_VERIFICATION_TOKEN` 长连接模式可留空）
 
@@ -168,7 +168,7 @@ cd backend && uv run python bot_service.py
 xiaosu-ai-assistant/
 ├── backend/                 # FastAPI 后端（uv 管理）
 │   ├── app/
-│   │   ├── routers/         # API 路由（auth/knowledge/documents/chat/admin/organizations）
+│   │   ├── routers/         # API 路由（auth/knowledge/documents/chat/admin/organizations/mock_api）
 │   │   ├── retrieval/       # RAG 检索管线（向量/BM25/RRF/Cross-Encoder/拒答）
 │   │   ├── services/        # LLM、Embedding、Agent 编排、飞书机器人、文档、缓存
 │   │   ├── models/          # SQLAlchemy 模型（用户/知识库/文档/对话/绑定关系）
