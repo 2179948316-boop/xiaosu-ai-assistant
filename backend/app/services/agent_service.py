@@ -10,7 +10,7 @@
 """
 import json
 import logging
-from typing import AsyncGenerator, Dict, List
+from typing import AsyncGenerator, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,8 +65,9 @@ async def _save_assistant_message(
     content: str,
     tool_trace: List[Dict],
     kbs_sources: List[Dict],
+    token_count: Optional[int] = None,
 ) -> None:
-    """保存助手消息（含工具轨迹与引用来源），失败不影响响应"""
+    """保存助手消息（含工具轨迹、引用来源与 token 用量），失败不影响响应"""
     try:
         db.add(Message(
             conversation_id=conversation_id,
@@ -74,11 +75,12 @@ async def _save_assistant_message(
             content=content,
             tool_calls=tool_trace if tool_trace else None,
             sources=[_to_source_info(s) for s in kbs_sources] if kbs_sources else None,
+            token_count=token_count if token_count else None,
         ))
         await db.commit()
         logger.info(
             f"Agent 回复已保存 (conversation_id={conversation_id}, "
-            f"tools={len(tool_trace)}, sources={len(kbs_sources)})"
+            f"tools={len(tool_trace)}, sources={len(kbs_sources)}, tokens={token_count})"
         )
     except Exception as save_err:
         logger.error(f"保存 Agent 助手消息失败: {save_err}")
@@ -100,7 +102,10 @@ async def agent_chat_stream(
 
     # ============ 工具阶段（非流式循环） ============
     final_content = None
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
     for round_idx in range(settings.AGENT_MAX_ROUNDS):
+        resp = None
         try:
             resp = await chat_with_tools(messages, tools=TOOL_SCHEMAS)
         except Exception as e:
@@ -112,6 +117,11 @@ async def agent_chat_stream(
                 logger.error(f"Agent LLM 重试仍失败: {retry_err}")
                 yield _sse_event({"type": "error", "content": "系统暂时无法查询，请稍后再试。"})
                 return
+
+        # 累计 token 用量（管理后台统计；Ollama/OpenAI 模式均已归一为 usage 字段）
+        usage = resp.get("usage") or {}
+        total_prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        total_completion_tokens += int(usage.get("completion_tokens") or 0)
 
         tool_calls = resp.get("tool_calls") or []
         if not tool_calls:
@@ -171,8 +181,12 @@ async def agent_chat_stream(
 
     final_content = final_content or "抱歉，我没有理解你的问题，请换个方式描述。"
 
-    # 保存消息（工具轨迹 + 引用来源）
-    await _save_assistant_message(db, conversation_id, final_content, tool_trace, kbs_sources)
+    # 保存消息（工具轨迹 + 引用来源 + token 用量）
+    total_tokens = total_prompt_tokens + total_completion_tokens
+    await _save_assistant_message(
+        db, conversation_id, final_content, tool_trace, kbs_sources,
+        token_count=total_tokens or None,
+    )
 
     # ============ 最终回答阶段（分块输出，模拟流式） ============
     if kbs_sources:

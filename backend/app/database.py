@@ -92,3 +92,31 @@ async def ensure_schema() -> None:
                 logger.info("数据库迁移: conversations 表新增 chat_id 列")
         except Exception as e:
             logger.warning(f"ensure_schema conversations 补列检查跳过: {e}")
+
+        # 4. 检查 users.is_admin 列（v1.3 管理后台权限新增）
+        def _user_columns(sync_conn) -> set:
+            return {c["name"] for c in inspect(sync_conn).get_columns("users")}
+
+        try:
+            user_cols = await conn.run_sync(_user_columns)
+            if "is_admin" not in user_cols:
+                await conn.execute(
+                    text("ALTER TABLE users ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0")
+                )
+                logger.info("数据库迁移: users 表新增 is_admin 列")
+        except Exception as e:
+            logger.warning(f"ensure_schema users 补列检查跳过: {e}")
+
+        # 5. 检查 messages.token_count 列（v1.3 管理后台 token 统计新增）
+        def _message_columns(sync_conn) -> set:
+            return {c["name"] for c in inspect(sync_conn).get_columns("messages")}
+
+        try:
+            msg_cols = await conn.run_sync(_message_columns)
+            if "token_count" not in msg_cols:
+                await conn.execute(
+                    text("ALTER TABLE messages ADD COLUMN token_count INT NULL")
+                )
+                logger.info("数据库迁移: messages 表新增 token_count 列")
+        except Exception as e:
+            logger.warning(f"ensure_schema messages 补列检查跳过: {e}")

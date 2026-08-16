@@ -18,6 +18,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     avatar: Optional[str] = None
+    is_admin: bool = False
     created_at: datetime
 
     class Config:
@@ -120,6 +121,7 @@ class MessageResponse(BaseModel):
     content: str
     sources: Optional[list] = None
     tool_calls: Optional[list] = None
+    token_count: Optional[int] = None
     created_at: datetime
 
     class Config:

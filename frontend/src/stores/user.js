@@ -9,6 +9,9 @@ export const useUserStore = defineStore('user', () => {
 
   const isLoggedIn = computed(() => !!token.value)
 
+  // Phase 5：管理员判定（服务端以 is_admin 字段 / ADMIN_USERNAMES 白名单为准，此处仅控制前端展示）
+  const isAdmin = computed(() => !!(user.value && user.value.is_admin))
+
   async function login(username, password) {
     const res = await loginApi({ username, password })
     token.value = res.access_token
@@ -30,5 +33,5 @@ export const useUserStore = defineStore('user', () => {
     router.push('/login')
   }
 
-  return { token, user, isLoggedIn, login, register, logout }
+  return { token, user, isLoggedIn, isAdmin, login, register, logout }
 })

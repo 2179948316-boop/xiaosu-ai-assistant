@@ -52,6 +52,21 @@ async def get_current_user(
     return user
 
 
+def is_admin_user(user: User) -> bool:
+    """管理员判定（Phase 5）：users.is_admin 字段 或 .env ADMIN_USERNAMES 白名单，满足其一即可"""
+    if getattr(user, "is_admin", False):
+        return True
+    admins = [u.strip() for u in (settings.ADMIN_USERNAMES or "").split(",") if u.strip()]
+    return user.username in admins
+
+
+async def get_current_admin(user: User = Depends(get_current_user)) -> User:
+    """管理后台接口依赖：非管理员直接 403"""
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
+
+
 @router.post("/register", response_model=UserResponse)
 async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     """用户注册"""

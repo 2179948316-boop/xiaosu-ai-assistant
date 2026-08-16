@@ -25,6 +25,7 @@ package-lock.json
 
 # ============ 数据与日志 ============
 backend/data/
+data/
 backend/logs/
 logs/
 *.log

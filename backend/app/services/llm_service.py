@@ -112,7 +112,14 @@ async def _ollama_chat_with_tools(
             "name": fn.get("name", ""),
             "arguments": fn.get("arguments") or {},
         })
-    return {"content": msg.get("content", ""), "tool_calls": tool_calls}
+    return {
+        "content": msg.get("content", ""),
+        "tool_calls": tool_calls,
+        "usage": {
+            "prompt_tokens": data.get("prompt_eval_count") or 0,
+            "completion_tokens": data.get("eval_count") or 0,
+        },
+    }
 
 
 async def _openai_chat_with_tools(
@@ -153,7 +160,15 @@ async def _openai_chat_with_tools(
             "name": fn.get("name", ""),
             "arguments": arguments,
         })
-    return {"content": message.get("content") or "", "tool_calls": tool_calls}
+    usage = data.get("usage") or {}
+    return {
+        "content": message.get("content") or "",
+        "tool_calls": tool_calls,
+        "usage": {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+        },
+    }
 
 
 # ==================== Ollama 模式 ====================

@@ -14,7 +14,9 @@
 import asyncio
 import json
 import logging
+import os
 import threading
+from datetime import datetime
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
@@ -33,6 +35,32 @@ logger = logging.getLogger("feishu_bot")
 
 # 专用事件循环：所有 asyncio 工作（DB / Agent / Redis）都在此循环上执行
 _loop = asyncio.new_event_loop()
+
+
+def _start_heartbeat() -> None:
+    """后台守护线程：定期写心跳文件，供 Web 管理后台（/api/admin/settings）判断 bot 在线"""
+    path = settings.BOT_HEARTBEAT_FILE
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    def _loop() -> None:
+        while True:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "pid": os.getpid(),
+                            "ts": datetime.now().isoformat(timespec="seconds"),
+                        },
+                        f,
+                        ensure_ascii=False,
+                    )
+            except Exception as e:
+                logger.warning(f"心跳文件写入失败: {e}")
+            threading.Event().wait(15)
+
+    threading.Thread(target=_loop, name="bot-heartbeat", daemon=True).start()
 
 
 def _run_loop() -> None:
@@ -161,6 +189,9 @@ def main() -> None:
         log_level=lark.LogLevel.INFO,
         auto_reconnect=True,
     )
+
+    # 启动心跳线程（管理后台据此展示 IM 连接状态）
+    _start_heartbeat()
 
     logger.info("🤖 小苏飞书机器人启动中（长连接模式）...")
     logger.info(f"   默认知识库 ID: {settings.FEISHU_DEFAULT_KB_ID or '自动选择第一个'}")

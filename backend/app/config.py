@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     FEISHU_DEFAULT_KB_ID: int = 0        # 机器人默认查询的知识库 ID（0=自动选第一个）
     BOT_IDEMPOTENCY_TTL: int = 300       # 消息幂等去重窗口（秒）
 
+    # 管理后台配置（Phase 5）
+    # 逗号分隔的额外管理员用户名（配合 users.is_admin 字段；两者满足其一即管理员）
+    ADMIN_USERNAMES: str = ""
+    # 设置页可切换的 LLM 模型白名单（逗号分隔）
+    LLM_MODEL_WHITELIST: str = "deepseek-r1:1.5b,MiniMax-Text-01"
+    # 机器人心跳文件（相对 backend 目录），由 bot_service 定时写入，管理后台读取判断在线
+    BOT_HEARTBEAT_FILE: str = "../data/bot_heartbeat.json"
+
     # 文件上传配置
     UPLOAD_DIR: str = "../data/uploads"
     MAX_FILE_SIZE_MB: int = 50

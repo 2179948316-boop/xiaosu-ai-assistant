@@ -8,7 +8,7 @@ import os
 
 from app.config import get_settings
 from app.log_config import setup_logging
-from app.routers import auth, knowledge, documents, chat, organizations, mock_api
+from app.routers import auth, knowledge, documents, chat, organizations, mock_api, admin
 
 settings = get_settings()
 
@@ -71,6 +71,7 @@ app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(organizations.router)
 app.include_router(mock_api.router)
+app.include_router(admin.router)
 
 
 @app.get("/api/health")

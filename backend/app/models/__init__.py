@@ -1,5 +1,5 @@
 """ORM 模型 - 统一导出"""
-from sqlalchemy import Column, BigInteger, String, Text, Integer, DateTime, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, BigInteger, String, Text, Integer, DateTime, JSON, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -12,6 +12,8 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     avatar = Column(String(500))
+    # Phase 5 管理后台权限：is_admin=1 可访问对话日志/设置（也可通过 .env ADMIN_USERNAMES 配置）
+    is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

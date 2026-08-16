@@ -82,6 +82,17 @@
         <el-icon><Document /></el-icon>
         文档管理
       </el-button>
+      <!-- Phase 5：管理员专属入口（服务端接口仍有 403 兜底） -->
+      <template v-if="userStore.isAdmin">
+        <el-button text @click="router.push('/admin/logs')" class="footer-btn">
+          <el-icon><DataBoard /></el-icon>
+          对话日志
+        </el-button>
+        <el-button text @click="router.push('/settings')" class="footer-btn">
+          <el-icon><Tools /></el-icon>
+          系统设置
+        </el-button>
+      </template>
       <el-button text @click="handleLogout" class="footer-btn">
         <el-icon><SwitchButton /></el-icon>
         退出登录
@@ -104,7 +115,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   DataAnalysis, EditPen, ChatDotRound, Delete,
-  Document, SwitchButton, Setting
+  Document, SwitchButton, Setting, DataBoard, Tools
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'

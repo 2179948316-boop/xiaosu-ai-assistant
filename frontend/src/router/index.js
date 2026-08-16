@@ -23,6 +23,18 @@ const routes = [
     component: () => import('../views/Documents.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/admin/logs',
+    name: 'AdminLogs',
+    component: () => import('../views/AdminLogs.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true },
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/Settings.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true },
+  },
 ]
 
 const router = createRouter({
@@ -37,6 +49,14 @@ router.beforeEach((to, from, next) => {
     next('/login')
   } else if ((to.path === '/login' || to.path === '/register') && token) {
     next('/')
+  } else if (to.meta.requiresAdmin) {
+    // Phase 5：管理后台路由仅管理员可见（服务端接口仍有 403 兜底）
+    const user = JSON.parse(localStorage.getItem('user') || 'null')
+    if (!user || !user.is_admin) {
+      next('/')
+    } else {
+      next()
+    }
   } else {
     next()
   }
