@@ -67,6 +67,14 @@ async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def user_to_response(user: User) -> UserResponse:
+    """构造用户响应：is_admin 合并「is_admin 字段 OR ADMIN_USERNAMES 白名单」，
+    保证前端展示的管理员身份与后端接口鉴权完全一致（否则白名单用户登录后看不到管理入口）。"""
+    resp = UserResponse.model_validate(user)
+    resp.is_admin = is_admin_user(user)
+    return resp
+
+
 @router.post("/register", response_model=UserResponse)
 async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     """用户注册"""
@@ -82,7 +90,7 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.flush()
     await db.refresh(user)
-    return user
+    return user_to_response(user)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -97,5 +105,5 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     token = create_access_token(user.id)
     return TokenResponse(
         access_token=token,
-        user=UserResponse.model_validate(user),
+        user=user_to_response(user),
     )
