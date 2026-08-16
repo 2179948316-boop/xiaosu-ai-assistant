@@ -246,7 +246,8 @@ async def _start_account_bind(
     _ACCOUNT_PENDING[open_id] = (username, time.time())
     return build_text_reply(
         f"即将把当前飞书身份绑定到账号「{username}」。\n"
-        f"请回复该账号的登录密码完成验证（密码仅用于本次验证，不会保存）。\n"
+        f"请直接回复该账号的登录密码完成验证（密码仅用于本次验证，不会保存）。\n"
+        f"注意：直接发密码即可，不要加「密码：」之类的前缀。\n"
         f"回复「取消」可中止。"
     )
 
@@ -257,8 +258,15 @@ async def _verify_account_password(
     password: str,
     username: str,
 ) -> Tuple[str, str]:
-    """验证密码并写入 feishu_open_id 关联（换绑时清掉旧账号的关联）。"""
+    """验证密码并写入 feishu_open_id 关联（换绑时清掉旧账号的关联）。
+
+    用户可能回复「密码：xxx」「密码:xxx」「密码 xxx」等带前缀的消息，
+    验证前先剥离前缀，只取真正的密码部分（误伤概率极低）。
+    """
     _ACCOUNT_PENDING.pop(open_id, None)  # 无论成败都退出验证态
+
+    # 例如「密码：18806276625」→「18806276625」；剥离失败则原样验证
+    password = re.sub(r"^\s*密码\s*[：:，,、]?\s*", "", (password or "").strip())
 
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()

@@ -464,6 +464,30 @@ class TestHandleAccountCommand:
         assert "ou_a" not in feishu_bot._ACCOUNT_PENDING
         self._clear_pending()
 
+    async def test_verify_password_with_prefix_colon(self):
+        """用户回复「密码：pw123456」（带冒号前缀）→ 剥离前缀后验证成功"""
+        self._clear_pending()
+        user = _account_user()
+        db = _AccountDB(user, None)
+        feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", time.time())
+        msg_type, content = await feishu_bot.handle_account_command(
+            db, "ou_a", "密码：pw123456", "p2p")
+        assert "验证通过" in json.loads(content)["text"]
+        assert user.feishu_open_id == "ou_a"
+        self._clear_pending()
+
+    async def test_verify_password_with_prefix_space(self):
+        """用户回复「密码 pw123456」（空格分隔）→ 剥离前缀后验证成功"""
+        self._clear_pending()
+        user = _account_user()
+        db = _AccountDB(user, None)
+        feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", time.time())
+        msg_type, content = await feishu_bot.handle_account_command(
+            db, "ou_a", "密码 pw123456", "p2p")
+        assert "验证通过" in json.loads(content)["text"]
+        assert user.feishu_open_id == "ou_a"
+        self._clear_pending()
+
     async def test_verify_cancel(self):
         self._clear_pending()
         feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", 0)
