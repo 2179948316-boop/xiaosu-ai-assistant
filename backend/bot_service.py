@@ -134,7 +134,7 @@ async def _handle_message_async(data: P2ImMessageReceiveV1) -> None:
     try:
         async with async_session_factory() as db:
             msg_type, reply_content = await feishu_bot.process_question(
-                db, open_id, chat_id, question
+                db, open_id, chat_id, question, chat_type
             )
         _send_reply(message_id, msg_type, reply_content)
         logger.info(f"已回复 message_id={message_id} msg_type={msg_type}")

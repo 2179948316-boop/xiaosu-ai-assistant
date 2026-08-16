@@ -14,6 +14,8 @@ class User(Base):
     avatar = Column(String(500))
     # Phase 5 管理后台权限：is_admin=1 可访问对话日志/设置（也可通过 .env ADMIN_USERNAMES 配置）
     is_admin = Column(Boolean, default=False, nullable=False)
+    # Phase 5.6 飞书账号绑定：该 Web 账号被哪个飞书 open_id 关联（bot 密码验证后写入，唯一）
+    feishu_open_id = Column(String(64), unique=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

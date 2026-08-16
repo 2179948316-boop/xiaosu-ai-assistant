@@ -6,6 +6,7 @@ SSE 事件解析、Agent 结果收集、知识库绑定指令解析与检索优�
 import json
 import sys
 import os
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -251,38 +252,313 @@ class TestResolveKbId:
         db = _SeqDB(None, None)
         assert await feishu_bot.resolve_kb_id(db, open_id="ou_a") is None
 
+    @pytest.mark.asyncio
+    async def test_bound_user_latest_kb_fallback(self, monkeypatch):
+        """绑定账号后：无显式绑定 → 回退该账号可见的最新知识库（不会误连别人的库）"""
+        monkeypatch.setattr(feishu_bot.settings, "FEISHU_DEFAULT_KB_ID", 0)
+        monkeypatch.setattr(
+            feishu_bot, "list_visible_kbs",
+            AsyncMock(return_value=[SimpleNamespace(id=6), SimpleNamespace(id=3)]),
+        )
+        user = SimpleNamespace(id=9)
+        db = _SeqDB(None)  # 1 次：open_id 绑定查询
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a", user=user) == 6
+
+    @pytest.mark.asyncio
+    async def test_user_no_kb_falls_to_global_first(self, monkeypatch):
+        """账号下没有库 → 仍回退全局第一个知识库"""
+        monkeypatch.setattr(feishu_bot.settings, "FEISHU_DEFAULT_KB_ID", 0)
+        monkeypatch.setattr(feishu_bot, "list_visible_kbs", AsyncMock(return_value=[]))
+        user = SimpleNamespace(id=9)
+        db = _SeqDB(None, SimpleNamespace(id=7))  # open 检查 + 全局第一个
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a", user=user) == 7
+
 
 class TestHandleBindingCommand:
-    @pytest.mark.asyncio
     async def test_query_current_binding(self, monkeypatch):
-        kb = SimpleNamespace(name="考勤库", document_count=4)
-        db = SimpleNamespace(get=AsyncMock(return_value=kb))
+        kb = SimpleNamespace(name="考勤库", document_count=4, user_id=1)
+
+        class DB:
+            async def execute(self, stmt):
+                return _SeqResult(None)  # 未绑定账号
+
+            async def get(self, model, pk):
+                return kb
+
         monkeypatch.setattr(feishu_bot, "resolve_kb_id", AsyncMock(return_value=5))
-        msg_type, content = await feishu_bot.handle_binding_command(db, "ou_a", "oc_b", "当前知识库")
+        msg_type, content = await feishu_bot.handle_binding_command(DB(), "ou_a", "oc_b", "当前知识库")
         assert msg_type == "text"
         text = json.loads(content)["text"]
         assert "考勤库" in text and "ID=5" in text and "4 篇" in text
 
-    @pytest.mark.asyncio
     async def test_bind_by_name(self, monkeypatch):
         kb = SimpleNamespace(id=5, name="员工手册", document_count=4)
-        db = AsyncMock()
-        monkeypatch.setattr(feishu_bot, "find_kb_by_name", AsyncMock(return_value=kb))
+        user = SimpleNamespace(id=1, username="alice")
+
+        class DB:
+            async def execute(self, stmt):
+                return _SeqResult(user)  # 已绑定账号
+
+        monkeypatch.setattr(feishu_bot, "_find_kbs_by_name", AsyncMock(return_value=[kb]))
         monkeypatch.setattr(feishu_bot, "set_binding", AsyncMock(return_value="群 oc_b"))
         msg_type, content = await feishu_bot.handle_binding_command(
-            db, "ou_a", "oc_b", "绑定知识库：员工手册")
+            DB(), "ou_a", "oc_b", "绑定知识库：员工手册")
         text = json.loads(content)["text"]
         assert "员工手册" in text and "群 oc_b" in text
 
-    @pytest.mark.asyncio
-    async def test_bind_not_found(self, monkeypatch):
-        db = AsyncMock()
-        monkeypatch.setattr(feishu_bot, "find_kb_by_name", AsyncMock(return_value=None))
+    async def test_bind_by_id(self, monkeypatch):
+        kb = SimpleNamespace(id=5, name="员工手册", document_count=4)
+        user = SimpleNamespace(id=1, username="alice")
+
+        class DB:
+            async def execute(self, stmt):
+                return _SeqResult(user)
+
+        monkeypatch.setattr(feishu_bot, "_find_kb_by_id", AsyncMock(return_value=kb))
+        monkeypatch.setattr(feishu_bot, "set_binding", AsyncMock(return_value="群 oc_b"))
         msg_type, content = await feishu_bot.handle_binding_command(
-            db, "ou_a", "oc_b", "绑定知识库：不存在的库")
+            DB(), "ou_a", "oc_b", "绑定知识库：5")
+        assert "员工手册" in json.loads(content)["text"]
+
+    async def test_bind_not_found(self, monkeypatch):
+        user = SimpleNamespace(id=1, username="alice")
+
+        class DB:
+            async def execute(self, stmt):
+                return _SeqResult(user)
+
+        monkeypatch.setattr(feishu_bot, "_find_kbs_by_name", AsyncMock(return_value=[]))
+        msg_type, content = await feishu_bot.handle_binding_command(
+            DB(), "ou_a", "oc_b", "绑定知识库：不存在的库")
         assert "没找到" in json.loads(content)["text"]
 
-    @pytest.mark.asyncio
+    async def test_bind_requires_account_first(self):
+        class DB:
+            async def execute(self, stmt):
+                return _SeqResult(None)  # 未绑定账号
+
+        msg_type, content = await feishu_bot.handle_binding_command(
+            DB(), "ou_a", "oc_b", "绑定知识库：员工手册")
+        assert "绑定账号" in json.loads(content)["text"]
+
+    async def test_bind_multiple_candidates(self, monkeypatch):
+        user = SimpleNamespace(id=1, username="alice")
+
+        class DB:
+            async def execute(self, stmt):
+                return _SeqResult(user)
+
+        monkeypatch.setattr(
+            feishu_bot, "_find_kbs_by_name",
+            AsyncMock(return_value=[
+                SimpleNamespace(id=3, name="test", document_count=2),
+                SimpleNamespace(id=4, name="test", document_count=1),
+            ]),
+        )
+        msg_type, content = await feishu_bot.handle_binding_command(
+            DB(), "ou_a", "oc_b", "绑定知识库：test")
+        text = json.loads(content)["text"]
+        assert "匹配到多个" in text and "ID=3" in text and "ID=4" in text
+
     async def test_normal_question_not_handled(self):
         assert await feishu_bot.handle_binding_command(
             AsyncMock(), "ou_a", "oc_b", "今天考勤怎么样") is None
+
+
+class TestParseAccountCommand:
+    """账号绑定指令识别（Phase 5.6）"""
+
+    def test_bind_account(self):
+        assert feishu_bot.parse_account_command("绑定账号：18806276625") == ("bind", "18806276625")
+
+    def test_bind_account_no_separator(self):
+        assert feishu_bot.parse_account_command("绑定账号18806276625") == ("bind", "18806276625")
+
+    def test_show_me(self):
+        assert feishu_bot.parse_account_command("我的账号") == ("me", "")
+        assert feishu_bot.parse_account_command("当前账号") == ("me", "")
+
+    def test_list_kbs(self):
+        assert feishu_bot.parse_account_command("我的知识库") == ("list_kb", "")
+        assert feishu_bot.parse_account_command("有哪些知识库") == ("list_kb", "")
+
+    def test_unbind(self):
+        assert feishu_bot.parse_account_command("解除绑定") == ("unbind", "")
+
+    def test_normal_message_not_command(self):
+        assert feishu_bot.parse_account_command("今天考勤怎么样") is None
+        assert feishu_bot.parse_account_command("绑定知识库：员工手册") is None
+
+
+def _account_user(username="alice", password="pw123456", feishu_open_id=None):
+    return SimpleNamespace(
+        id=1, username=username,
+        password_hash=feishu_bot.hash_password(password),
+        feishu_open_id=feishu_open_id, is_admin=False,
+    )
+
+
+class _AccountDB:
+    """账号绑定测试用假 db：execute 按序弹结果 + 记录 commit"""
+
+    def __init__(self, *results):
+        self._results = list(results)
+        self.commits = 0
+
+    async def execute(self, stmt):
+        return _SeqResult(self._results.pop(0) if self._results else None)
+
+    async def commit(self):
+        self.commits += 1
+
+
+class TestHandleAccountCommand:
+    """账号绑定全流程：发起 → 密码验证 → 绑定生效 / 失败清理 / 私聊限制"""
+
+    def _clear_pending(self):
+        feishu_bot._ACCOUNT_PENDING.clear()
+
+    async def test_start_bind_p2p(self):
+        self._clear_pending()
+        db = _AccountDB(_account_user())
+        msg_type, content = await feishu_bot.handle_account_command(
+            db, "ou_a", "绑定账号：alice", "p2p")
+        assert "即将把" in json.loads(content)["text"]
+        assert "ou_a" in feishu_bot._ACCOUNT_PENDING  # 进入验证态
+        self._clear_pending()
+
+    async def test_start_bind_group_rejected(self):
+        self._clear_pending()
+        msg_type, content = await feishu_bot.handle_account_command(
+            AsyncMock(), "ou_a", "绑定账号：alice", "group")
+        assert "私聊" in json.loads(content)["text"]
+        assert "ou_a" not in feishu_bot._ACCOUNT_PENDING
+
+    async def test_start_bind_unknown_user(self):
+        self._clear_pending()
+        msg_type, content = await feishu_bot.handle_account_command(
+            _AccountDB(None), "ou_a", "绑定账号：ghost", "p2p")
+        assert "不存在" in json.loads(content)["text"]
+
+    async def test_verify_password_success(self):
+        """正确密码 → 绑定成功：feishu_open_id 写入 + commit"""
+        self._clear_pending()
+        user = _account_user()
+        db = _AccountDB(user, None)  # 第二次 execute：旧关联查询 → 无
+        feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", time.time())
+        msg_type, content = await feishu_bot.handle_account_command(db, "ou_a", "pw123456", "p2p")
+        assert "验证通过" in json.loads(content)["text"]
+        assert user.feishu_open_id == "ou_a"
+        assert db.commits == 1
+        assert "ou_a" not in feishu_bot._ACCOUNT_PENDING  # 验证态已退出
+        self._clear_pending()
+
+    async def test_verify_password_wrong(self):
+        self._clear_pending()
+        user = _account_user()
+        db = _AccountDB(user)
+        feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", time.time())
+        msg_type, content = await feishu_bot.handle_account_command(db, "ou_a", "wrong-pass", "p2p")
+        assert "验证失败" in json.loads(content)["text"]
+        assert user.feishu_open_id is None
+        assert "ou_a" not in feishu_bot._ACCOUNT_PENDING
+        self._clear_pending()
+
+    async def test_verify_cancel(self):
+        self._clear_pending()
+        feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", 0)
+        msg_type, content = await feishu_bot.handle_account_command(
+            AsyncMock(), "ou_a", "取消", "p2p")
+        assert "已取消" in json.loads(content)["text"]
+        assert "ou_a" not in feishu_bot._ACCOUNT_PENDING
+        self._clear_pending()
+
+    async def test_password_in_group_rejected(self):
+        """验证态中群聊消息不会当成密码（密码不暴露到群里）"""
+        self._clear_pending()
+        feishu_bot._ACCOUNT_PENDING["ou_a"] = ("alice", 0)
+        msg_type, content = await feishu_bot.handle_account_command(
+            AsyncMock(), "ou_a", "pw123456", "group")
+        assert "私聊" in json.loads(content)["text"]
+        assert "ou_a" in feishu_bot._ACCOUNT_PENDING  # 验证态保留，可回私聊继续
+        self._clear_pending()
+
+    async def test_show_bound_account(self):
+        db = _AccountDB(_account_user(feishu_open_id="ou_a"))
+        msg_type, content = await feishu_bot.handle_account_command(
+            db, "ou_a", "我的账号", "p2p")
+        assert "alice" in json.loads(content)["text"]
+
+    async def test_show_unbound_account(self):
+        msg_type, content = await feishu_bot.handle_account_command(
+            _AccountDB(None), "ou_a", "我的账号", "p2p")
+        assert "未绑定" in json.loads(content)["text"]
+
+    async def test_list_kbs(self, monkeypatch):
+        monkeypatch.setattr(
+            feishu_bot, "list_visible_kbs",
+            AsyncMock(return_value=[
+                SimpleNamespace(name="员工手册", id=5, document_count=4, org_id=None),
+                SimpleNamespace(name="test", id=6, document_count=3, org_id=2),
+            ]),
+        )
+        db = _AccountDB(_account_user(feishu_open_id="ou_a"))
+        msg_type, content = await feishu_bot.handle_account_command(
+            db, "ou_a", "我的知识库", "p2p")
+        text = json.loads(content)["text"]
+        assert "员工手册" in text and "ID=5" in text and "组织" in text
+
+    async def test_unbind(self):
+        user = _account_user(feishu_open_id="ou_a")
+        db = _AccountDB(user)
+        msg_type, content = await feishu_bot.handle_account_command(
+            db, "ou_a", "解除绑定", "p2p")
+        assert "已解除" in json.loads(content)["text"]
+        assert user.feishu_open_id is None
+        assert db.commits == 1
+
+    async def test_normal_message_not_handled(self):
+        self._clear_pending()
+        assert await feishu_bot.handle_account_command(
+            AsyncMock(), "ou_a", "今天考勤怎么样", "p2p") is None
+
+
+class TestFindKbsByNameInScope:
+    """账号可见范围内的名称匹配：精确优先，模糊候选截断"""
+
+    async def test_exact_name_first(self, monkeypatch):
+        monkeypatch.setattr(
+            feishu_bot, "list_visible_kbs",
+            AsyncMock(return_value=[
+                SimpleNamespace(name="test", id=4),
+                SimpleNamespace(name="test-kb", id=1),
+            ]),
+        )
+        found = await feishu_bot._find_kbs_by_name(AsyncMock(), SimpleNamespace(id=1), "test")
+        assert [kb.id for kb in found] == [4]
+
+    async def test_fuzzy_match(self, monkeypatch):
+        monkeypatch.setattr(
+            feishu_bot, "list_visible_kbs",
+            AsyncMock(return_value=[
+                SimpleNamespace(name="考勤制度", id=1),
+                SimpleNamespace(name="考勤手册", id=2),
+                SimpleNamespace(name="薪酬制度", id=3),
+            ]),
+        )
+        found = await feishu_bot._find_kbs_by_name(AsyncMock(), SimpleNamespace(id=1), "考勤")
+        assert [kb.id for kb in found] == [1, 2]
+
+    async def test_no_match(self, monkeypatch):
+        monkeypatch.setattr(feishu_bot, "list_visible_kbs", AsyncMock(return_value=[]))
+        found = await feishu_bot._find_kbs_by_name(
+            AsyncMock(), SimpleNamespace(id=1), "不存在")
+        assert found == []
+
+    async def test_fuzzy_capped_at_5(self, monkeypatch):
+        monkeypatch.setattr(
+            feishu_bot, "list_visible_kbs",
+            AsyncMock(return_value=[SimpleNamespace(name=f"x{i}", id=i) for i in range(8)]),
+        )
+        found = await feishu_bot._find_kbs_by_name(AsyncMock(), SimpleNamespace(id=1), "x")
+        assert len(found) == 5

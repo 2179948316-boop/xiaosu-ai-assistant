@@ -120,3 +120,20 @@ async def ensure_schema() -> None:
                 logger.info("数据库迁移: messages 表新增 token_count 列")
         except Exception as e:
             logger.warning(f"ensure_schema messages 补列检查跳过: {e}")
+
+        # 6. 检查 users.feishu_open_id 列（v1.4 飞书账号绑定新增）
+        def _user_columns_v14(sync_conn) -> set:
+            return {c["name"] for c in inspect(sync_conn).get_columns("users")}
+
+        try:
+            user_cols_v14 = await conn.run_sync(_user_columns_v14)
+            if "feishu_open_id" not in user_cols_v14:
+                await conn.execute(
+                    text("ALTER TABLE users ADD COLUMN feishu_open_id VARCHAR(64) NULL")
+                )
+                await conn.execute(
+                    text("CREATE UNIQUE INDEX uq_users_feishu_open_id ON users (feishu_open_id)")
+                )
+                logger.info("数据库迁移: users 表新增 feishu_open_id 列")
+        except Exception as e:
+            logger.warning(f"ensure_schema users feishu_open_id 补列检查跳过: {e}")
