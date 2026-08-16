@@ -12,6 +12,7 @@ import json
 import logging
 from typing import AsyncGenerator, Dict, List, Optional
 
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -45,6 +46,39 @@ AGENT_SYSTEM_PROMPT = """你是公司内部 AI 助手"小苏"，可以调用工�
 def _sse_event(data: dict) -> str:
     """构造 SSE 格式事件数据"""
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _get_recent_history(
+    db: AsyncSession,
+    conversation_id: int,
+    limit: int = 6,
+) -> List[Dict]:
+    """加载会话历史（排除刚保存的当前问题），供多轮记忆；失败降级为空历史。
+
+    调用方（Web chat.py / 飞书 feishu_bot）总是先保存用户消息再进入本管线，
+    因此历史查询排除该会话最后一条 user 消息（即刚写入的当前问题），
+    避免当前问题重复出现在上下文里。
+    """
+    try:
+        last_user_id = (
+            select(func.max(Message.id))
+            .where(Message.conversation_id == conversation_id, Message.role == "user")
+            .scalar_subquery()
+        )
+        result = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .where(Message.id != last_user_id)
+            .where(Message.role.in_(["user", "assistant"]))
+            .order_by(Message.id.desc())
+            .limit(limit)
+        )
+        rows = list(result.scalars().all())
+        rows.reverse()  # 恢复时间顺序
+        return [{"role": m.role, "content": m.content} for m in rows]
+    except Exception as e:
+        logger.warning(f"加载对话历史失败，降级为空历史: {e}")
+        return []
 
 
 def _to_source_info(s: Dict) -> Dict:
@@ -93,8 +127,14 @@ async def agent_chat_stream(
     user_question: str,
 ) -> AsyncGenerator[str, None]:
     """Agent 工具调用 + 最终流式回答的完整流程"""
+    # 多轮记忆：加载最近对话历史（排除刚保存的当前问题），
+    # 历史注入在系统提示词之后、当前问题之前
+    history = await _get_recent_history(
+        db, conversation_id, limit=settings.AGENT_HISTORY_LIMIT
+    )
     messages: List[Dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+        *history,
         {"role": "user", "content": user_question},
     ]
     tool_trace: List[Dict] = []   # 工具调用轨迹（入库 + 前端展示）

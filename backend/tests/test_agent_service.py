@@ -284,3 +284,65 @@ class TestToolExecutors:
         from app.services.agent_tools import execute_tool
         result = await execute_tool("search_kb", {}, 1)
         assert "缺少 query" in result
+
+
+class TestAgentMultiTurnHistory:
+    """多轮记忆：agent_chat_stream 应将历史回填给 LLM（排除刚保存的当前问题）"""
+
+    @pytest.mark.asyncio
+    async def test_history_injected_before_user_question(self):
+        from app.services import agent_service
+
+        class _Msg:
+            def __init__(self, role, content):
+                self.role = role
+                self.content = content
+
+        class _FakeScalars:
+            def scalars(self):
+                return self
+
+            def all(self):
+                # 模拟 _get_recent_history 的 DESC 查询结果（最新在前），内部 reverse() 后恢复时间序
+                return [
+                    _Msg("assistant", "你好小明，有什么可以帮你？"),
+                    _Msg("user", "我叫小明"),
+                ]
+
+        db = AsyncMock()
+        db.execute.return_value = _FakeScalars()
+        captured = {}
+
+        async def fake_chat_with_tools(messages, tools=None, model=None):
+            captured["messages"] = [dict(m) for m in messages]
+            return {"content": "在的，小明。", "tool_calls": []}
+
+        with patch.object(agent_service, "chat_with_tools", new=fake_chat_with_tools):
+            events = await _collect_events(db, "还记得我叫什么吗？")
+
+        roles = [m["role"] for m in captured["messages"]]
+        # 首条 system，随后注入历史（user+assistant），当前问题在最后
+        assert roles == ["system", "user", "assistant", "user"]
+        assert captured["messages"][1]["content"] == "我叫小明"
+        assert captured["messages"][2]["content"] == "你好小明，有什么可以帮你？"
+        assert captured["messages"][3]["content"] == "还记得我叫什么吗？"
+        # 最终回答正常产出
+        full = "".join(e["content"] for e in events if e["type"] == "chunk")
+        assert full == "在的，小明。"
+
+    @pytest.mark.asyncio
+    async def test_history_query_failure_falls_back_to_empty(self):
+        """历史查询异常时降级为空历史，不阻断问答（同时覆盖 AsyncMock db 场景）"""
+        from app.services import agent_service
+        db = AsyncMock()
+        # execute 返回不可迭代的 AsyncMock → list() 抛错 → 应降级为空历史
+        db.execute.return_value = AsyncMock()
+
+        async def fake_chat_with_tools(messages, tools=None, model=None):
+            return {"content": "你好。", "tool_calls": []}
+
+        with patch.object(agent_service, "chat_with_tools", new=fake_chat_with_tools):
+            events = await _collect_events(db, "你好")
+
+        full = "".join(e["content"] for e in events if e["type"] == "chunk")
+        assert full == "你好。"

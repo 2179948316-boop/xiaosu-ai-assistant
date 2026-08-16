@@ -55,6 +55,7 @@ class Settings(BaseSettings):
 
     # Agent 工具调用配置
     AGENT_MAX_ROUNDS: int = 5            # 工具调用循环最大轮数
+    AGENT_HISTORY_LIMIT: int = 6         # 多轮记忆：回填给 LLM 的最近消息条数
     MOCK_API_BASE: str = "http://127.0.0.1:8000"  # mock 数据服务（工具执行器内部调用）
 
     # 飞书机器人配置（Phase 4）
