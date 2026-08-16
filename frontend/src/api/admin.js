@@ -12,3 +12,13 @@ export const getAdminSettings = () => api.get('/admin/settings')
 
 // 切换 LLM 模型
 export const updateAdminSettings = (data) => api.post('/admin/settings', data)
+
+// 飞书知识库绑定列表（按群 chat_id / 按人 open_id）
+export const getAdminBindings = () => api.get('/admin/bindings')
+
+// 新增/更新绑定（upsert：open_id 或 chat_id + kb_id）
+export const createAdminBinding = (data) => api.post('/admin/bindings', data)
+
+// 删除绑定
+export const deleteAdminBinding = (id) => api.delete(`/admin/bindings/${id}`)
+

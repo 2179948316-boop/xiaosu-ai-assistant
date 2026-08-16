@@ -1,11 +1,12 @@
 """飞书机器人服务单元测试（离线：不依赖真实飞书连接 / 数据库 / LLM）
 
 覆盖：消息解析（去 @）、回复构造（text/post 富文本）、幂等去重、
-SSE 事件解析、Agent 结果收集。
+SSE 事件解析、Agent 结果收集、知识库绑定指令解析与检索优先级。
 """
 import json
 import sys
 import os
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -167,3 +168,121 @@ class TestBotMentioned:
 
     def test_other_user_mentioned(self):
         assert feishu_bot.bot_mentioned([_FakeMention("@_user_1", mid="ou_other")], "ou_bot") is False
+
+
+class TestParseBindingCommand:
+    """知识库绑定/查询指令识别（Phase 5.5）"""
+
+    def test_bind_with_colon(self):
+        assert feishu_bot.parse_binding_command("绑定知识库：员工手册") == "员工手册"
+
+    def test_switch_without_separator(self):
+        assert feishu_bot.parse_binding_command("切换知识库员工手册") == "员工手册"
+
+    def test_use_kb(self):
+        assert feishu_bot.parse_binding_command("使用考勤库") == "考勤库"
+
+    def test_set_with_wei(self):
+        assert feishu_bot.parse_binding_command("设置为员工手册库") == "员工手册库"
+
+    def test_query_current(self):
+        assert feishu_bot.parse_binding_command("当前知识库") == ""
+
+    def test_query_now_binding(self):
+        assert feishu_bot.parse_binding_command("现在绑定的是哪个库？") == ""
+
+    def test_normal_question_not_command(self):
+        assert feishu_bot.parse_binding_command("今天考勤怎么样") is None
+
+    def test_bare_bind_not_command(self):
+        assert feishu_bot.parse_binding_command("绑定") is None
+
+    def test_empty_or_none(self):
+        assert feishu_bot.parse_binding_command("") is None
+        assert feishu_bot.parse_binding_command(None) is None
+
+
+class _SeqResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _SeqDB:
+    """按调用顺序返回预置结果的假 AsyncSession（一次 execute 弹出一个结果）"""
+
+    def __init__(self, *results):
+        self._results = list(results)
+
+    async def execute(self, stmt):
+        return _SeqResult(self._results.pop(0) if self._results else None)
+
+
+class TestResolveKbId:
+    """检索优先级：群绑定 > 个人绑定 > FEISHU_DEFAULT_KB_ID > 第一个知识库"""
+
+    @pytest.mark.asyncio
+    async def test_chat_binding_wins(self):
+        db = _SeqDB(SimpleNamespace(kb_id=2))
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a", chat_id="oc_b") == 2
+
+    @pytest.mark.asyncio
+    async def test_open_binding_when_no_chat_binding(self):
+        db = _SeqDB(None, SimpleNamespace(kb_id=3))
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a", chat_id="oc_b") == 3
+
+    @pytest.mark.asyncio
+    async def test_default_kb_id(self, monkeypatch):
+        monkeypatch.setattr(feishu_bot.settings, "FEISHU_DEFAULT_KB_ID", 9)
+        db = _SeqDB(None, SimpleNamespace(id=9))
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a") == 9
+
+    @pytest.mark.asyncio
+    async def test_fallback_first_kb(self, monkeypatch):
+        monkeypatch.setattr(feishu_bot.settings, "FEISHU_DEFAULT_KB_ID", 0)
+        db = _SeqDB(None, SimpleNamespace(id=7))
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a") == 7
+
+    @pytest.mark.asyncio
+    async def test_no_kb_anywhere_returns_none(self, monkeypatch):
+        monkeypatch.setattr(feishu_bot.settings, "FEISHU_DEFAULT_KB_ID", 0)
+        db = _SeqDB(None, None)
+        assert await feishu_bot.resolve_kb_id(db, open_id="ou_a") is None
+
+
+class TestHandleBindingCommand:
+    @pytest.mark.asyncio
+    async def test_query_current_binding(self, monkeypatch):
+        kb = SimpleNamespace(name="考勤库", document_count=4)
+        db = SimpleNamespace(get=AsyncMock(return_value=kb))
+        monkeypatch.setattr(feishu_bot, "resolve_kb_id", AsyncMock(return_value=5))
+        msg_type, content = await feishu_bot.handle_binding_command(db, "ou_a", "oc_b", "当前知识库")
+        assert msg_type == "text"
+        text = json.loads(content)["text"]
+        assert "考勤库" in text and "ID=5" in text and "4 篇" in text
+
+    @pytest.mark.asyncio
+    async def test_bind_by_name(self, monkeypatch):
+        kb = SimpleNamespace(id=5, name="员工手册", document_count=4)
+        db = AsyncMock()
+        monkeypatch.setattr(feishu_bot, "find_kb_by_name", AsyncMock(return_value=kb))
+        monkeypatch.setattr(feishu_bot, "set_binding", AsyncMock(return_value="群 oc_b"))
+        msg_type, content = await feishu_bot.handle_binding_command(
+            db, "ou_a", "oc_b", "绑定知识库：员工手册")
+        text = json.loads(content)["text"]
+        assert "员工手册" in text and "群 oc_b" in text
+
+    @pytest.mark.asyncio
+    async def test_bind_not_found(self, monkeypatch):
+        db = AsyncMock()
+        monkeypatch.setattr(feishu_bot, "find_kb_by_name", AsyncMock(return_value=None))
+        msg_type, content = await feishu_bot.handle_binding_command(
+            db, "ou_a", "oc_b", "绑定知识库：不存在的库")
+        assert "没找到" in json.loads(content)["text"]
+
+    @pytest.mark.asyncio
+    async def test_normal_question_not_handled(self):
+        assert await feishu_bot.handle_binding_command(
+            AsyncMock(), "ou_a", "oc_b", "今天考勤怎么样") is None

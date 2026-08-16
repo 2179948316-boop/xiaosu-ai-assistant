@@ -114,3 +114,20 @@ class Message(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class ImKbBinding(Base):
+    """飞书会话 → 知识库 绑定（Phase 5.5）
+
+    群聊按 chat_id 绑定（HR 群绑员工手册库），单聊按 open_id 按人绑定；
+    检索优先级：chat_id 绑定 > open_id 绑定 > FEISHU_DEFAULT_KB_ID > 第一个知识库。
+    """
+    __tablename__ = "im_kb_bindings"
+    __table_args__ = (UniqueConstraint("open_id", "chat_id", name="uk_im_binding"),)
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    open_id = Column(String(64), index=True)   # 单聊用户（与 chat_id 二选一）
+    chat_id = Column(String(64), index=True)   # 群聊（与 open_id 二选一）
+    kb_id = Column(BigInteger, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

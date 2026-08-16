@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import User, Conversation, Message, KnowledgeBase
+from app.models import User, Conversation, Message, KnowledgeBase, ImKbBinding
 from app.routers.auth import hash_password
 from app.services.agent_service import agent_chat_stream
 from app.services.cache_service import _get_redis
@@ -78,8 +78,32 @@ async def ensure_feishu_user(db: AsyncSession, open_id: str) -> int:
     return user.id
 
 
-async def resolve_kb_id(db: AsyncSession) -> Optional[int]:
-    """确定机器人使用的知识库：优先 FEISHU_DEFAULT_KB_ID，否则取第一个。"""
+async def resolve_kb_id(
+    db: AsyncSession,
+    open_id: Optional[str] = None,
+    chat_id: Optional[str] = None,
+) -> Optional[int]:
+    """确定机器人使用的知识库（Phase 5.5 绑定优先）。
+
+    优先级：群绑定(chat_id) > 个人绑定(open_id) > FEISHU_DEFAULT_KB_ID > 第一个知识库。
+    """
+    # 1. 群/会话绑定（管理后台或飞书指令配置）
+    if chat_id:
+        result = await db.execute(
+            select(ImKbBinding).where(ImKbBinding.chat_id == chat_id)
+        )
+        binding = result.scalar_one_or_none()
+        if binding:
+            return binding.kb_id
+    if open_id:
+        result = await db.execute(
+            select(ImKbBinding).where(ImKbBinding.open_id == open_id)
+        )
+        binding = result.scalar_one_or_none()
+        if binding:
+            return binding.kb_id
+
+    # 2. 全局默认
     if settings.FEISHU_DEFAULT_KB_ID:
         result = await db.execute(
             select(KnowledgeBase).where(KnowledgeBase.id == settings.FEISHU_DEFAULT_KB_ID)
@@ -87,9 +111,108 @@ async def resolve_kb_id(db: AsyncSession) -> Optional[int]:
         if result.scalar_one_or_none():
             return settings.FEISHU_DEFAULT_KB_ID
         logger.warning(f"FEISHU_DEFAULT_KB_ID={settings.FEISHU_DEFAULT_KB_ID} 不存在，回退第一个知识库")
+    # 3. 兜底：第一个知识库
     result = await db.execute(select(KnowledgeBase).order_by(KnowledgeBase.id.asc()).limit(1))
     kb = result.scalar_one_or_none()
     return kb.id if kb else None
+
+
+# ============ 知识库绑定指令（Phase 5.5） ============
+
+# 绑定/切换类指令（捕获库名）；查询类指令无捕获组（返回空串）
+_BIND_PATTERNS = [
+    r"^(?:绑定|切换|设置)(?:知识库)?[：:为]?\s*(.+)$",
+    r"^使用(?:知识库)?[：:为]?\s*(.+)$",
+    r"^(?:当前|现在)(?:用的|绑定的|绑定的是)?(?:是什么|是哪个|哪个)?(?:知识库|库)[？?]?$",
+]
+
+
+def parse_binding_command(question: str) -> Optional[str]:
+    """识别飞书知识库绑定指令。
+
+    - "绑定知识库：员工手册" / "切换知识库员工手册" / "使用XX库" → 返回库名
+    - "当前知识库" / "现在绑定的是哪个库" → 返回 ""（空串 = 查询当前绑定）
+    - 普通问题 → 返回 None
+    """
+    import re as _re
+    if not question:
+        return None
+    for pat in _BIND_PATTERNS:
+        m = _re.match(pat, question.strip())
+        if m:
+            groups = m.groups()
+            # 查询类指令无捕获组
+            return groups[0].strip() if groups else ""
+    return None
+
+
+async def find_kb_by_name(db: AsyncSession, name: str) -> Optional[KnowledgeBase]:
+    """按名称模糊查找知识库（取最新创建的），供绑定指令使用。"""
+    result = await db.execute(
+        select(KnowledgeBase)
+        .where(KnowledgeBase.name.contains(name))
+        .order_by(KnowledgeBase.id.desc())
+    )
+    return result.scalars().first()
+
+
+async def set_binding(
+    db: AsyncSession,
+    open_id: Optional[str],
+    chat_id: Optional[str],
+    kb_id: int,
+) -> str:
+    """写入/更新绑定关系，返回绑定对象描述。"""
+    result = await db.execute(
+        select(ImKbBinding).where(
+            ImKbBinding.open_id == open_id,
+            ImKbBinding.chat_id == chat_id,
+        )
+    )
+    binding = result.scalar_one_or_none()
+    if binding:
+        binding.kb_id = kb_id
+    else:
+        db.add(ImKbBinding(open_id=open_id, chat_id=chat_id, kb_id=kb_id))
+    await db.commit()
+    scope = f"群 {chat_id}" if chat_id else f"用户 {open_id}"
+    logger.info(f"知识库绑定已更新: {scope} → kb_id={kb_id}")
+    return scope
+
+
+async def handle_binding_command(
+    db: AsyncSession,
+    open_id: str,
+    chat_id: str,
+    question: str,
+) -> Tuple[str, str]:
+    """处理知识库绑定指令，返回 (msg_type, content_json)；非指令返回 None。"""
+    command = parse_binding_command(question)
+    if command is None:
+        return None
+
+    # 查询当前绑定
+    if command == "":
+        kb_id = await resolve_kb_id(db, open_id, chat_id)
+        if kb_id is None:
+            return build_text_reply("当前没有可用知识库，请先在 Web 后台创建。")
+        kb = await db.get(KnowledgeBase, kb_id)
+        name = kb.name if kb else f"#{kb_id}"
+        doc_count = kb.document_count if kb else 0
+        return build_text_reply(f"当前绑定的知识库是「{name}」（ID={kb_id}，文档 {doc_count} 篇）")
+
+    # 绑定/切换：按名称查找
+    kb = await find_kb_by_name(db, command)
+    if kb is None:
+        return build_text_reply(
+            f"没找到名为「{command}」的知识库。可用指令：\n"
+            "· 绑定知识库：<名称>\n· 当前知识库"
+        )
+    scope = await set_binding(db, open_id, chat_id, kb.id)
+    return build_text_reply(
+        f"已为{scope}绑定知识库「{kb.name}」（ID={kb.id}，文档 {kb.document_count} 篇）。"
+        f"\n接下来在这个会话里提问都会检索这个库。"
+    )
 
 
 async def get_or_create_conversation(
@@ -233,11 +356,17 @@ async def process_question(
     chat_id: str,
     question: str,
 ) -> Tuple[str, str]:
-    """完整处理一条问题：会话隔离 → 保存用户消息 → Agent → 构造回复。
+    """完整处理一条消息：绑定指令 → 会话隔离 → 保存用户消息 → Agent → 构造回复。
 
     返回 (msg_type, content_json)。任何异常向上抛，由调用方兜底。
     """
-    kb_id = await resolve_kb_id(db)
+    # Phase 5.5：知识库绑定指令（"绑定知识库：xx" / "当前知识库"）直接回复，不走 Agent
+    binding_reply = await handle_binding_command(db, open_id, chat_id, question)
+    if binding_reply is not None:
+        return binding_reply
+
+    # 按绑定解析知识库（群绑定 > 个人绑定 > 默认 > 第一个）
+    kb_id = await resolve_kb_id(db, open_id, chat_id)
     if kb_id is None:
         return build_text_reply("还没有可用的知识库，请先在 Web 后台创建并上传文档。")
 

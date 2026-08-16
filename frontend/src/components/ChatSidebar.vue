@@ -92,6 +92,10 @@
           <el-icon><Tools /></el-icon>
           系统设置
         </el-button>
+        <el-button text @click="router.push('/admin/bindings')" class="footer-btn">
+          <el-icon><Connection /></el-icon>
+          知识库绑定
+        </el-button>
       </template>
       <el-button text @click="handleLogout" class="footer-btn">
         <el-icon><SwitchButton /></el-icon>
@@ -115,7 +119,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   DataAnalysis, EditPen, ChatDotRound, Delete,
-  Document, SwitchButton, Setting, DataBoard, Tools
+  Document, SwitchButton, Setting, DataBoard, Tools, Connection
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'

@@ -1,13 +1,14 @@
 """管理后台路由单元测试（离线：不依赖真实数据库 / 飞书 / LLM）
 
 覆盖：管理员判定、403 权限、对话日志查询与统计、机器人心跳状态、
-LLM 模型切换（白名单校验 + .env 写入）。
+LLM 模型切换（白名单校验 + .env 写入）、飞书知识库绑定管理。
 """
 import json
 import sys
 import os
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -143,12 +144,130 @@ class TestAdminLogs:
         assert resp.items[0].open_id == "ou_abc"
 
 
+class TestAdminBindings:
+    """飞书知识库绑定管理（Phase 5.5）：列表 / upsert / 删除"""
+
+    def _binding(self, bid=1, open_id="ou_a", chat_id=None, kb_id=5):
+        return SimpleNamespace(
+            id=bid, open_id=open_id, chat_id=chat_id, kb_id=kb_id,
+            created_at=datetime(2026, 8, 10, 9, 0, 0),
+            updated_at=datetime(2026, 8, 10, 9, 0, 0),
+        )
+
+    def _kb(self, kid=5, name="员工手册", document_count=4):
+        return SimpleNamespace(id=kid, name=name, document_count=document_count)
+
+    def test_scope_label(self):
+        assert admin._binding_scope_label(None, "oc_b") == "群 oc_b"
+        assert admin._binding_scope_label("ou_a", None) == "用户 ou_a"
+        assert admin._binding_scope_label("ou_a", "oc_b") == "单聊 ou_a + 群 oc_b"
+
+    async def test_list_bindings_joins_kb_name(self):
+        binding, kb = self._binding(), self._kb()
+
+        class _DB:
+            def __init__(self):
+                self.calls = 0
+
+            async def execute(self, stmt):
+                self.calls += 1
+                if self.calls == 1:
+                    return _FakeResult([binding])
+                return _FakeResult([kb])
+
+        resp = await admin.list_admin_bindings(db=_DB(), admin=_user("boss", is_admin=True))
+        item = resp[0]
+        assert item["scope_label"] == "用户 ou_a"
+        assert item["kb_name"] == "员工手册"
+        assert item["document_count"] == 4
+
+    async def test_create_binding_ok(self, monkeypatch):
+        mock_set = AsyncMock(return_value="用户 ou_a")
+        monkeypatch.setattr(admin, "set_binding", mock_set)
+        kb, binding = self._kb(), self._binding()
+
+        class _DB:
+            def __init__(self):
+                self.results = [kb, binding]
+
+            async def execute(self, stmt):
+                return _FakeResult([self.results.pop(0)])
+
+        db = _DB()
+        resp = await admin.create_admin_binding(
+            admin.BindingCreate(open_id="ou_a", kb_id=5),
+            db=db,
+            admin=_user("boss", is_admin=True),
+        )
+        assert resp["kb_name"] == "员工手册"
+        assert resp["scope_label"] == "用户 ou_a"
+        mock_set.assert_awaited_once_with(db, "ou_a", None, 5)
+
+    async def test_create_binding_requires_scope(self):
+        with pytest.raises(HTTPException) as exc:
+            await admin.create_admin_binding(
+                admin.BindingCreate(kb_id=5), db=AsyncMock(), admin=_user("boss", is_admin=True))
+        assert exc.value.status_code == 400
+
+    async def test_create_binding_kb_not_found(self):
+        class _DB:
+            async def execute(self, stmt):
+                return _FakeResult([])
+
+        with pytest.raises(HTTPException) as exc:
+            await admin.create_admin_binding(
+                admin.BindingCreate(chat_id="oc_b", kb_id=999),
+                db=_DB(),
+                admin=_user("boss", is_admin=True),
+            )
+        assert exc.value.status_code == 404
+
+    async def test_delete_binding(self):
+        binding = self._binding()
+
+        class _DB:
+            def __init__(self):
+                self.deleted = []
+                self.committed = 0
+
+            async def execute(self, stmt):
+                return _FakeResult([binding])
+
+            async def delete(self, obj):
+                self.deleted.append(obj)
+
+            async def commit(self):
+                self.committed += 1
+
+        db = _DB()
+        resp = await admin.delete_admin_binding(1, db=db, admin=_user("boss", is_admin=True))
+        assert "已解除" in resp["message"]
+        assert len(db.deleted) == 1 and db.committed == 1
+
+    async def test_delete_missing_binding_404(self):
+        class _DB:
+            async def execute(self, stmt):
+                return _FakeResult([])
+
+        with pytest.raises(HTTPException) as exc:
+            await admin.delete_admin_binding(99, db=_DB(), admin=_user("boss", is_admin=True))
+        assert exc.value.status_code == 404
+
+
 class _FakeResult:
     def __init__(self, rows):
         self._rows = rows
 
     def scalar(self):
         return self._rows[0] if isinstance(self._rows, (list, tuple)) and self._rows else 0
+
+    def scalar_one_or_none(self):
+        if isinstance(self._rows, (list, tuple)) and self._rows:
+            return self._rows[0]
+        return None
+
+    def scalar_one(self):
+        return self._rows[0] if isinstance(self._rows, (list, tuple)) else self._rows
 
     def scalars(self):
         return SimpleNamespace(all=lambda: [r for r in self._rows])
