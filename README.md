@@ -67,18 +67,30 @@ flowchart TB
 
 ### Docker 一键启动（推荐）
 
+前置依赖：宿主机已有 **MySQL 8.0 与 Redis**（compose 复用外部实例，容器通过 `host.docker.internal` 连接，不内置数据库）。
+
 ```bash
 git clone https://github.com/2179948316-boop/xiaosu-ai-assistant.git
 cd xiaosu-ai-assistant
-cp .env.example .env                    # 修改 MYSQL_ROOT_PASSWORD
-cp backend/.env.example backend/.env    # 填入 LLM API Key / 数据库密码
+cp backend/.env.example backend/.env    # 填入数据库连接 / LLM API Key / 飞书凭据 / 管理员白名单
 docker compose up -d --build
 ```
 
 启动后访问：
 
-- 前端：http://localhost
-- 后端 API 文档：http://localhost:8000/docs
+- 前端：http://localhost:84
+- 后端 API 文档：http://localhost:8004/docs
+
+> 端口默认 84 / 8004，避开常见的 80 / 8000 占用（如与 nginx 等冲突可直接改 `docker-compose.yml`）。
+
+### 部署后初始化（重要）
+
+服务器数据库由 `init.sql` 初始化，**不含任何用户**，首次部署后按顺序执行：
+
+1. 在 `backend/.env` 配置 `ADMIN_USERNAMES=你的用户名`（逗号分隔可多个）——管理员身份 = `users.is_admin` 字段 **或** 白名单，满足其一即可
+2. 用白名单中的用户名在 Web 端注册（注册即获得管理员身份，无需改数据库）
+3. 登录后出现管理后台 → 创建知识库、上传文档、配置飞书群/人绑定与 LLM 模型
+4. 飞书兜底：未做任何绑定时，群聊 @ 小苏自动使用**全局第一个知识库**；如需指定，设置 `FEISHU_DEFAULT_KB_ID=<知识库ID>`（0 = 自动选第一个）
 
 ### 本地开发（uv + pnpm）
 
