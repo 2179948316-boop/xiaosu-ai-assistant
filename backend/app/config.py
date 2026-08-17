@@ -22,22 +22,23 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    # Ollama 配置（本地模式）
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    LLM_MODEL: str = "deepseek-r1:1.5b"
-    EMBEDDING_MODEL: str = "nomic-embed-text"
+    # LLM 提供商选择: "minimax" 或 "deepseek"
+    LLM_PROVIDER: str = "minimax"
 
-    # LLM 提供商选择: "ollama" 或 "openai"
-    LLM_PROVIDER: str = "ollama"
+    # MiniMax 配置
+    MINIMAX_BASE_URL: str = "https://api.minimax.chat/v1"
+    MINIMAX_API_KEY: str = ""
+    MINIMAX_LLM_MODEL: str = "MiniMax-Text-01"
 
-    # OpenAI 兼容 API 配置（适用于 MiniMax/DeepSeek/SiliconFlow/OpenAI 等）
-    OPENAI_BASE_URL: str = "https://api.minimax.chat/v1"
-    OPENAI_API_KEY: str = ""
-    OPENAI_LLM_MODEL: str = "MiniMax-Text-01"
-    OPENAI_EMBEDDING_MODEL: str = ""  # 留空则 Embedding 仍用 Ollama
+    # DeepSeek 配置
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_LLM_MODEL: str = "deepseek-chat"
 
-    # Embedding 提供商选择: "ollama" 或 "openai"（独立于 LLM_PROVIDER）
-    EMBEDDING_PROVIDER: str = "ollama"
+    # Embedding 配置（仅 MiniMax，与 LLM 提供商解耦）
+    EMBEDDING_BASE_URL: str = "https://api.minimax.chat/v1"
+    EMBEDDING_API_KEY: str = ""
+    EMBEDDING_MODEL: str = "embo-01"
 
     # Chroma 配置
     CHROMA_PERSIST_DIR: str = "../data/chroma_db"
@@ -70,7 +71,7 @@ class Settings(BaseSettings):
     # 逗号分隔的额外管理员用户名（配合 users.is_admin 字段；两者满足其一即管理员）
     ADMIN_USERNAMES: str = ""
     # 设置页可切换的 LLM 模型白名单（逗号分隔）
-    LLM_MODEL_WHITELIST: str = "deepseek-r1:1.5b,MiniMax-Text-01"
+    LLM_MODEL_WHITELIST: str = "MiniMax-Text-01,deepseek-chat"
     # 机器人心跳文件（相对 backend 目录），由 bot_service 定时写入，管理后台读取判断在线
     BOT_HEARTBEAT_FILE: str = "../data/bot_heartbeat.json"
 

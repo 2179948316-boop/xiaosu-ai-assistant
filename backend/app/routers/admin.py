@@ -23,7 +23,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User, Conversation, Message, ImKbBinding, KnowledgeBase
 from app.routers.auth import get_current_admin
-from app.services.feishu_bot import set_binding
+from app.services.feishu.binding import set_binding
 
 router = APIRouter(prefix="/api/admin", tags=["管理后台"])
 settings = get_settings()
@@ -223,18 +223,21 @@ def _read_bot_heartbeat() -> dict:
 
 
 class SettingsUpdate(BaseModel):
+    llm_provider: Optional[str] = None
     llm_model: str
 
 
 @router.get("/settings")
 async def get_admin_settings(admin: User = Depends(get_current_admin)):
-    """系统设置：当前模型 / 白名单 / 飞书机器人状态"""
+    """系统设置：当前提供商 / 模型 / 白名单 / 飞书机器人状态"""
     whitelist = [m.strip() for m in settings.LLM_MODEL_WHITELIST.split(",") if m.strip()]
+    provider = settings.LLM_PROVIDER
+    model = (
+        settings.MINIMAX_LLM_MODEL if provider == "minimax" else settings.DEEPSEEK_LLM_MODEL
+    )
     return {
-        "llm_provider": settings.LLM_PROVIDER,
-        "llm_model": (
-            settings.OPENAI_LLM_MODEL if settings.LLM_PROVIDER == "openai" else settings.LLM_MODEL
-        ),
+        "llm_provider": provider,
+        "llm_model": model,
         "model_whitelist": whitelist,
         "feishu": {
             "app_id": settings.FEISHU_APP_ID,
@@ -249,34 +252,59 @@ async def update_admin_settings(
     data: SettingsUpdate,
     admin: User = Depends(get_current_admin),
 ):
-    """切换 LLM 模型：白名单校验 → 写入 backend/.env（重启后依然生效）"""
+    """切换 LLM 提供商或模型：白名单校验 → 写入 backend/.env（重启后依然生效）"""
     whitelist = [m.strip() for m in settings.LLM_MODEL_WHITELIST.split(",") if m.strip()]
     if data.llm_model not in whitelist:
         raise HTTPException(status_code=400, detail=f"模型不在白名单: {data.llm_model}")
 
-    target_key = "OPENAI_LLM_MODEL" if settings.LLM_PROVIDER == "openai" else "LLM_MODEL"
+    # 如果传了提供商则切换，否则保持当前
+    new_provider = data.llm_provider or settings.LLM_PROVIDER
+    if new_provider == "minimax":
+        target_key = "MINIMAX_LLM_MODEL"
+    elif new_provider == "deepseek":
+        target_key = "DEEPSEEK_LLM_MODEL"
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的 LLM 提供商: {new_provider}")
 
     lines: List[str] = []
     if os.path.exists(_ENV_FILE):
         with open(_ENV_FILE, encoding="utf-8") as f:
             lines = f.readlines()
-    found = False
+
+    # 写入模型
+    found_model = False
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith(f"{target_key}="):
             lines[i] = f"{target_key}={data.llm_model}\n"
-            found = True
+            found_model = True
             break
-    if not found:
+    if not found_model:
         lines.append(f"{target_key}={data.llm_model}\n")
+
+    # 如果传了提供商，也写入 LLM_PROVIDER
+    if data.llm_provider:
+        found_provider = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("LLM_PROVIDER="):
+                lines[i] = f"LLM_PROVIDER={new_provider}\n"
+                found_provider = True
+                break
+        if not found_provider:
+            lines.append(f"LLM_PROVIDER={new_provider}\n")
+
     with open(_ENV_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
     # 刷新进程内配置缓存（下一次请求即生效）
     from app.config import get_settings as _gs
     _gs.cache_clear()
-    logger.info(f"管理员 {admin.username} 切换 LLM 模型 → {data.llm_model}（写入 {target_key}）")
-    return {"llm_model": data.llm_model, "key": target_key}
+    logger.info(
+        f"管理员 {admin.username} 切换 LLM → "
+        f"provider={new_provider}, model={data.llm_model}（写入 {target_key}）"
+    )
+    return {"llm_model": data.llm_model, "llm_provider": new_provider, "key": target_key}
 
 
 # ============ 飞书知识库绑定（Phase 5.5） ============

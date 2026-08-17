@@ -1,8 +1,8 @@
-"""LLM 服务 - 支持 Ollama（本地）和 OpenAI 兼容 API（云端）双模式
+"""LLM 服务 - 支持 MiniMax 和 DeepSeek 云端 API 双模式
 
 通过 .env 中 LLM_PROVIDER 切换：
-  - "ollama"：调用本地 Ollama（默认）
-  - "openai"：调用 OpenAI 兼容 API（MiniMax / DeepSeek / SiliconFlow / OpenAI 等）
+  - "minimax"：调用 MiniMax API（默认）
+  - "deepseek"：调用 DeepSeek API
 """
 import httpx
 import json
@@ -14,50 +14,47 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
-def _is_openai_mode() -> bool:
-    return settings.LLM_PROVIDER == "openai"
-
-
-def _get_headers() -> Dict[str, str]:
-    """根据模式返回请求头"""
-    if _is_openai_mode():
+def _get_llm_config() -> dict:
+    """根据 LLM_PROVIDER 返回对应提供商的配置"""
+    if settings.LLM_PROVIDER == "deepseek":
         return {
-            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-            "Content-Type": "application/json",
+            "base_url": settings.DEEPSEEK_BASE_URL,
+            "api_key": settings.DEEPSEEK_API_KEY,
+            "model": settings.DEEPSEEK_LLM_MODEL,
         }
-    return {}
+    # minimax（默认）
+    return {
+        "base_url": settings.MINIMAX_BASE_URL,
+        "api_key": settings.MINIMAX_API_KEY,
+        "model": settings.MINIMAX_LLM_MODEL,
+    }
+
+
+def _get_headers(api_key: str) -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
 
 def _get_llm_model(model: str = None) -> str:
-    """根据模式返回模型名"""
     if model:
         return model
-    if _is_openai_mode():
-        return settings.OPENAI_LLM_MODEL
-    return settings.LLM_MODEL
+    return _get_llm_config()["model"]
 
 
 async def chat_stream(
     messages: List[Dict[str, str]],
     model: str = None,
 ) -> AsyncGenerator[str, None]:
-    """
-    流式对话生成。自动根据 LLM_PROVIDER 选择 Ollama 或 OpenAI 兼容 API。
-    """
-    if _is_openai_mode():
-        async for token in _openai_chat_stream(messages, model):
-            yield token
-    else:
-        async for token in _ollama_chat_stream(messages, model):
-            yield token
+    """流式对话生成。自动根据 LLM_PROVIDER 选择 MiniMax 或 DeepSeek。"""
+    async for token in _openai_chat_stream(messages, model):
+        yield token
 
 
 async def chat_complete(messages: List[Dict[str, str]], model: str = None) -> str:
     """非流式调用，返回完整回复"""
-    if _is_openai_mode():
-        return await _openai_chat_complete(messages, model)
-    else:
-        return await _ollama_chat_complete(messages, model)
+    return await _openai_chat_complete(messages, model)
 
 
 async def chat_with_tools(
@@ -65,62 +62,11 @@ async def chat_with_tools(
     tools: List[Dict],
     model: str = None,
 ) -> Dict:
-    """
-    带工具的非流式调用（Agent 工具阶段使用）。
-    返回统一结构：{"content": str, "tool_calls": [{"id", "name", "arguments": dict}]}
-    Ollama 与 OpenAI 兼容模式的 tool_calls 格式差异在此收敛。
-    """
-    if _is_openai_mode():
-        return await _openai_chat_with_tools(messages, tools, model)
-    return await _ollama_chat_with_tools(messages, tools, model)
+    """带工具的非流式调用（Agent 工具阶段使用）。"""
+    return await _openai_chat_with_tools(messages, tools, model)
 
 
-# ==================== 带工具调用（Agent） ====================
-
-async def _ollama_chat_with_tools(
-    messages: List[Dict],
-    tools: List[Dict],
-    model: str = None,
-) -> Dict:
-    """Ollama 原生 tools 支持：message.tool_calls[].function.{name, arguments}"""
-    model = _get_llm_model(model)
-    payload = {
-        "model": model,
-        "messages": messages,
-        "tools": tools,
-        "stream": False,
-        "options": {
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "num_ctx": 4096,
-        }
-    }
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{settings.OLLAMA_BASE_URL}/api/chat",
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    msg = data.get("message", {})
-    tool_calls = []
-    for i, tc in enumerate(msg.get("tool_calls") or []):
-        fn = tc.get("function", {})
-        tool_calls.append({
-            "id": f"call_{i}",
-            "name": fn.get("name", ""),
-            "arguments": fn.get("arguments") or {},
-        })
-    return {
-        "content": msg.get("content", ""),
-        "tool_calls": tool_calls,
-        "usage": {
-            "prompt_tokens": data.get("prompt_eval_count") or 0,
-            "completion_tokens": data.get("eval_count") or 0,
-        },
-    }
-
+# ==================== OpenAI 兼容模式（同时适配 MiniMax / DeepSeek） ====================
 
 async def _openai_chat_with_tools(
     messages: List[Dict],
@@ -128,7 +74,9 @@ async def _openai_chat_with_tools(
     model: str = None,
 ) -> Dict:
     """OpenAI 兼容 API：choices[0].message.tool_calls，arguments 为 JSON 字符串"""
+    config = _get_llm_config()
     model = _get_llm_model(model)
+    url = f"{config['base_url']}/chat/completions"
     payload = {
         "model": model,
         "messages": messages,
@@ -140,9 +88,9 @@ async def _openai_chat_with_tools(
     }
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
-            f"{settings.OPENAI_BASE_URL}/chat/completions",
+            url,
             json=payload,
-            headers=_get_headers(),
+            headers=_get_headers(config["api_key"]),
         )
         response.raise_for_status()
         data = response.json()
@@ -171,73 +119,14 @@ async def _openai_chat_with_tools(
     }
 
 
-# ==================== Ollama 模式 ====================
-
-async def _ollama_chat_stream(
-    messages: List[Dict[str, str]],
-    model: str = None,
-) -> AsyncGenerator[str, None]:
-    model = _get_llm_model(model)
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": True,
-        "options": {
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "num_ctx": 4096,
-        }
-    }
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream(
-            "POST",
-            f"{settings.OLLAMA_BASE_URL}/api/chat",
-            json=payload,
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.strip():
-                    continue
-                try:
-                    data = json.loads(line)
-                    if "message" in data and "content" in data["message"]:
-                        token = data["message"]["content"]
-                        if token:
-                            yield token
-                    if data.get("done", False):
-                        break
-                except json.JSONDecodeError:
-                    continue
-
-
-async def _ollama_chat_complete(messages: List[Dict[str, str]], model: str = None) -> str:
-    model = _get_llm_model(model)
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{settings.OLLAMA_BASE_URL}/api/chat",
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": False,
-                "options": {
-                    "temperature": 0.7,
-                    "num_ctx": 4096,
-                }
-            }
-        )
-        response.raise_for_status()
-        return response.json()["message"]["content"]
-
-
-# ==================== OpenAI 兼容模式 ====================
-
 async def _openai_chat_stream(
     messages: List[Dict[str, str]],
     model: str = None,
 ) -> AsyncGenerator[str, None]:
     """OpenAI 兼容 API 流式调用（SSE）"""
+    config = _get_llm_config()
     model = _get_llm_model(model)
-    url = f"{settings.OPENAI_BASE_URL}/chat/completions"
+    url = f"{config['base_url']}/chat/completions"
     payload = {
         "model": model,
         "messages": messages,
@@ -246,7 +135,7 @@ async def _openai_chat_stream(
         "top_p": 0.9,
         "max_tokens": 4096,
     }
-    headers = _get_headers()
+    headers = _get_headers(config["api_key"])
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         async with client.stream(
@@ -272,8 +161,9 @@ async def _openai_chat_stream(
 
 async def _openai_chat_complete(messages: List[Dict[str, str]], model: str = None) -> str:
     """OpenAI 兼容 API 非流式调用"""
+    config = _get_llm_config()
     model = _get_llm_model(model)
-    url = f"{settings.OPENAI_BASE_URL}/chat/completions"
+    url = f"{config['base_url']}/chat/completions"
     payload = {
         "model": model,
         "messages": messages,
@@ -281,7 +171,7 @@ async def _openai_chat_complete(messages: List[Dict[str, str]], model: str = Non
         "temperature": 0.7,
         "max_tokens": 4096,
     }
-    headers = _get_headers()
+    headers = _get_headers(config["api_key"])
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(url, json=payload, headers=headers)

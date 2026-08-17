@@ -1,11 +1,10 @@
-"""RAGAS 适配器 - 将 Ollama 接入 RAGAS 评估框架
+"""RAGAS 适配器 - 基于 MiniMax/DeepSeek 云端 API
 
 RAGAS 需要 LLM 和 Embeddings 适配器来计算 faithfulness / answer_relevancy 等指标。
-这里通过 httpx 直接调用 Ollama API，无需引入 LangChain。
+这里复用 llm_service 和 embedding_service，不依赖本地 Ollama。
 
 适配 RAGAS 0.4.x 接口：BaseRagasLLM + LangChain PromptValue/LLMResult
 """
-import httpx
 import asyncio
 from typing import List, Optional
 
@@ -14,17 +13,14 @@ from langchain_core.prompt_values import PromptValue
 from ragas.llms.base import BaseRagasLLM
 from langchain_core.callbacks import Callbacks
 
-from app.config import get_settings
-
-settings = get_settings()
+from app.services.llm_service import chat_complete
 
 
-class OllamaLLM(BaseRagasLLM):
-    """RAGAS LLM 适配器 - Ollama (兼容 0.4.x)"""
+class RagasLLM(BaseRagasLLM):
+    """RAGAS LLM 适配器 - 使用 llm_service（MiniMax / DeepSeek）"""
 
-    def __init__(self, model: str = None, base_url: str = None):
-        self.model = model or settings.LLM_MODEL
-        self.base_url = base_url or settings.OLLAMA_BASE_URL
+    def __init__(self, model: str = None):
+        self.model = model
 
     async def agenerate_text(
         self,
@@ -36,24 +32,10 @@ class OllamaLLM(BaseRagasLLM):
     ) -> LLMResult:
         """异步生成文本 - RAGAS 核心调用入口"""
         prompt_text = prompt.to_string()
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": prompt_text}],
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_ctx": 4096,
-                        **({"stop": stop} if stop else {}),
-                    },
-                    **({"think": False} if "deepseek" in self.model or "qwen3" in self.model else {}),
-                },
-            )
-            response.raise_for_status()
-            text = response.json()["message"]["content"]
-
+        text = await chat_complete(
+            [{"role": "user", "content": prompt_text}],
+            model=self.model,
+        )
         generations = [[Generation(text=text)]]
         return LLMResult(generations=generations)
 
@@ -99,38 +81,24 @@ class OllamaLLM(BaseRagasLLM):
     # 兼容旧接口（generate_testset.py 中使用了 agenerate）
     async def agenerate(self, prompt, **kwargs) -> str:
         prompt_text = str(prompt)
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": prompt_text}],
-                    "stream": False,
-                    "options": {"temperature": 0.0, "num_ctx": 4096},
-                },
-            )
-            response.raise_for_status()
-            return response.json()["message"]["content"]
+        return await chat_complete(
+            [{"role": "user", "content": prompt_text}],
+            model=self.model,
+        )
 
 
 from ragas.embeddings.base import BaseRagasEmbeddings
 
 
-class OllamaEmbeddings(BaseRagasEmbeddings):
-    """RAGAS Embeddings 适配器 - Ollama"""
+class RagasEmbeddings(BaseRagasEmbeddings):
+    """RAGAS Embeddings 适配器 - 使用 embedding_service（MiniMax）"""
 
-    def __init__(self, model: str = None, base_url: str = None):
-        self.model = model or settings.EMBEDDING_MODEL
-        self.base_url = base_url or settings.OLLAMA_BASE_URL
+    def __init__(self, model: str = None):
+        self.model = model
 
     async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/embed",
-                json={"model": self.model, "input": texts},
-            )
-            response.raise_for_status()
-            return response.json()["embeddings"]
+        from app.services.embedding_service import get_embeddings
+        return await get_embeddings(texts, embed_type="db")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         loop = asyncio.new_event_loop()

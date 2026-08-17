@@ -17,3 +17,5 @@ export const uploadDocument = (kbId, file, onProgress) => {
 }
 export const getDocuments = (kbId) => api.get(`/documents/${kbId}`)
 export const deleteDocument = (docId) => api.delete(`/documents/${docId}`)
+export const getDocumentPreview = (docId) => api.get(`/documents/${docId}/preview`)
+export const batchDeleteDocuments = (docIds) => api.post('/documents/batch-delete', { doc_ids: docIds })

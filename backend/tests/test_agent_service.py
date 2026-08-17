@@ -9,6 +9,15 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
+@pytest.fixture(autouse=True)
+def _skip_agent_stream():
+    """自动跳过 agent 真流式（不 Mock 的话会真实调用 LLM），回退分块输出。"""
+    from app.services import agent_service
+    agent_service._AGENT_SKIP_STREAM = True
+    yield
+    agent_service._AGENT_SKIP_STREAM = False
+
+
 async def _collect_events(db, question="张伟今天考勤怎么样？"):
     """运行 agent_chat_stream 并收集解析后的事件列表"""
     from app.services.agent_service import agent_chat_stream

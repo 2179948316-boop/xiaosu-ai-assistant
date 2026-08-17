@@ -58,7 +58,7 @@ async def rerun_ragas(
         )
         from ragas.run_config import RunConfig
         from datasets import Dataset
-        from evaluation.ragas_adapters import OllamaLLM, OllamaEmbeddings
+        from evaluation.ragas_adapters import RagasLLM, RagasEmbeddings
 
         eval_dataset = Dataset.from_dict({
             "question": questions,
@@ -67,9 +67,9 @@ async def rerun_ragas(
             "answer": answers,
         })
 
-        # 用 deepseek-r1:1.5b 做评估（JSON 输出更可靠）
-        llm = OllamaLLM(model="deepseek-r1:1.5b")
-        embeddings = OllamaEmbeddings()
+        # 用云端模型做评估
+        llm = RagasLLM()
+        embeddings = RagasEmbeddings()
 
         run_config = RunConfig(
             max_workers=2,

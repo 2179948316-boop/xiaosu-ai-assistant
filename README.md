@@ -1,3 +1,5 @@
+> 底层框架：本项目基于我本人开源的「企业级 RAG 知识库检索系统」[campus-rag](https://github.com/2179948316-boop/campus-rag) 完善搭建，检索管线、部署架构等底层能力直接复用该系统。
+
 # 小苏 - 公司内部 AI 助手
 
 基于 RAG（检索增强生成）+ Agent 工具调用的公司内部 AI 助手。员工上传公司文档建立知识库，通过 **Web 网页**或**飞书 IM** 向"小苏"提问：它基于知识库流式作答并附参考来源，知识库检索不到时会明确拒答而不编造；涉及员工信息 / 考勤 / 订单类问题时，它会自主调用内部数据工具查询后回答。
@@ -27,7 +29,7 @@ flowchart TB
     subgraph Backend["FastAPI 后端 (app/)"]
         API[API 路由<br/>auth / knowledge / chat / admin]
         BOT-->|im.message.receive_v1| PIPELINE[问答管线<br/>Agent 编排 / RAG 检索]
-        PIPELINE --> LLM[LLM 服务<br/>Ollama / OpenAI 兼容]
+        PIPELINE --> LLM[LLM 服务<br/>MiniMax / DeepSeek 云端双模式]
         PIPELINE --> TOOLS[工具执行器<br/>mock 员工/考勤/订单数据]
         PIPELINE --> RETRIEVAL[混合检索<br/>向量 + BM25 + RRF + Cross-Encoder]
         RETRIEVAL --> CHROMA[(ChromaDB 向量库)]
@@ -56,10 +58,10 @@ flowchart TB
 | 后端 | FastAPI + SQLAlchemy 2.0（async + aiomysql）+ Pydantic v2（Python ≥ 3.12，uv 管理依赖） |
 | 前端 | Vue 3 + Vite + Element Plus + Pinia（pnpm 管理依赖） |
 | 检索 | ChromaDB 向量库 + rank-bm25 + Cross-Encoder 重排（RAGAS 评估） |
-| LLM | Ollama（本地免费）或任意 OpenAI 兼容 API（MiniMax / DeepSeek / SiliconFlow / OpenAI） |
+| LLM | MiniMax（默认）/ DeepSeek 云端双模式，管理后台可切换；Embedding 走 MiniMax embo-01 |
 | IM | 飞书开放平台 + lark-oapi（WebSocket 长连接，无需公网回调） |
 | 中间件 | MySQL 8.0（业务数据）+ Redis（语义缓存 / 幂等去重）+ ChromaDB（嵌入式，持久化于 `data/chroma_db`） |
-| 部署 | Docker Compose 一键启动（前端 + 后端 + MySQL + Redis） |
+| 部署 | Docker Compose 一键启动（前端 + 后端 + 飞书机器人 + MySQL + Redis） |
 
 ## 快速开始
 
@@ -139,7 +141,7 @@ cd backend && uv run python bot_service.py
 
 ### 3. Web 管理后台
 
-登录管理员账号后，侧边栏出现管理入口：对话日志（按用户/时间筛选、展开查看工具调用轨迹与 token 用量）、设置（切换 LLM 模型、查看机器人心跳状态）、知识库绑定（查看/新建/删除群与个人的绑定关系）。
+登录管理员账号后，侧边栏出现管理入口：对话日志（按用户/时间筛选、展开查看工具调用轨迹与 token 用量）、设置（切换 LLM 模型、查看机器人心跳状态）、知识库绑定（查看/新建/删除群与个人的绑定关系）。测试管理员账号:test1 密码：123456
 
 ## 测试
 
@@ -147,14 +149,14 @@ cd backend && uv run python bot_service.py
 ./scripts/test.sh   # cd backend && uv run pytest tests/ -v
 ```
 
-180 条用例全部离线可跑（Mock LLM，不调真实 API），覆盖：
+183 条用例全部离线可跑（Mock LLM，不调真实 API），覆盖：
 
 - Agent 编排（工具调用/降级/多轮记忆）与拒答硬阈值逻辑
 - 文档增量更新（同名替换、向量清理）
 - 飞书机器人（指令解析、账号绑定、知识库绑定、知识库范围检索）
 - 管理后台权限与绑定接口
 - RAG 管线组件（BM25 / Cross-Encoder / RRF / 文本切片 / 文件解析）
-- RAGAS 评估适配（Ollama / OpenAI 双模式）
+- RAGAS 评估适配（MiniMax / DeepSeek 双模式，复用 LLM 服务）
 
 ## Roadmap
 
@@ -170,12 +172,12 @@ xiaosu-ai-assistant/
 │   ├── app/
 │   │   ├── routers/         # API 路由（auth/knowledge/documents/chat/admin/organizations/mock_api）
 │   │   ├── retrieval/       # RAG 检索管线（向量/BM25/RRF/Cross-Encoder/拒答）
-│   │   ├── services/        # LLM、Embedding、Agent 编排、飞书机器人、文档、缓存
+│   │   ├── services/        # LLM、Embedding、Agent 编排、文档、缓存；feishu/ 子包（飞书机器人）
 │   │   ├── models/          # SQLAlchemy 模型（用户/知识库/文档/对话/绑定关系）
 │   │   └── utils/           # 文件解析、文本切片
 │   ├── evaluation/          # RAGAS 评估（测试集生成/评估脚本/结果）
 │   ├── bot_service.py       # 飞书机器人入口（长连接）
-│   └── tests/               # pytest 测试（180 条，离线可跑）
+│   └── tests/               # pytest 测试（子包：feishu/ 机器人、pipeline/ 检索，离线可跑）
 ├── frontend/                # Vue 3 前端（pnpm 管理）
 ├── scripts/                 # start.sh / test.sh / deploy.sh
 ├── docker-compose.yml       # 一键部署编排
@@ -184,8 +186,10 @@ xiaosu-ai-assistant/
 
 ## 文档
 
-- `AI_USAGE.md` — AI 使用说明（工具链、Prompt 案例、踩坑记录）
-- `自评.md` — 项目自评（技术决策、妥协与改进方向）
+- `AI_USAGE.md` — AI 使用说明（工具链、Prompt 案例、踩坑记录）*
+- `自评.md` — 项目自评（技术决策、妥协与改进方向）*
+
+> * 以上为笔试过程材料，仅保留在本地，不随仓库提供。
 
 ## 许可
 

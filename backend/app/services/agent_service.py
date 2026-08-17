@@ -18,10 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import Message
 from app.services.agent_tools import TOOL_SCHEMAS, execute_tool
-from app.services.llm_service import chat_with_tools
+from app.services.llm_service import chat_with_tools, chat_stream
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# 测试用 flag：True 时跳过真流式，回退分块（避免单元测试调用真实 LLM）
+_AGENT_SKIP_STREAM = False
 
 AGENT_SYSTEM_PROMPT = """你是公司内部 AI 助手"小苏"，可以调用工具查询真实数据来回答用户问题。
 
@@ -166,6 +169,7 @@ async def agent_chat_stream(
         tool_calls = resp.get("tool_calls") or []
         if not tool_calls:
             final_content = resp.get("content") or ""
+            _stream_final = True  # 正常结束：启用真流式
             break
 
         # 回填 assistant 的 tool_calls 消息（含原始参数），供后续轮次继续
@@ -216,27 +220,44 @@ async def agent_chat_stream(
                 "content": result,
             })
     else:
-        # 兜底 3：循环超轮数
+        # 兜底 3：循环超轮数（不走流式，直接 fallback 文案）
+        _stream_final = False
         final_content = "我尝试了多次仍未能完成这个查询，可能系统暂时不可用，请稍后再试。"
 
     final_content = final_content or "抱歉，我没有理解你的问题，请换个方式描述。"
 
-    # 保存消息（工具轨迹 + 引用来源 + token 用量）
-    total_tokens = total_prompt_tokens + total_completion_tokens
-    await _save_assistant_message(
-        db, conversation_id, final_content, tool_trace, kbs_sources,
-        token_count=total_tokens or None,
-    )
-
-    # ============ 最终回答阶段（分块输出，模拟流式） ============
+    # ============ 最终回答阶段（真流式 or 分块兜底） ============
+    # 先发引用来源（不管流式还是分块，来源都要先展示）
     if kbs_sources:
         yield _sse_event({
             "type": "sources",
             "sources": [_to_source_info(s) for s in kbs_sources],
         })
 
-    chunk_size = 8
-    for i in range(0, len(final_content), chunk_size):
-        yield _sse_event({"type": "chunk", "content": final_content[i:i + chunk_size]})
+    _stream_ok = False
+    if _stream_final and final_content and not _AGENT_SKIP_STREAM:
+        # 真流式：基于完整上下文（含全部工具结果）逐 token 生成最终回答
+        try:
+            full_response = ""
+            async for token in chat_stream(messages):
+                full_response += token
+                yield _sse_event({"type": "chunk", "content": token})
+            final_content = full_response
+            _stream_ok = True
+        except Exception as e:
+            logger.warning(f"流式生成失败，回退分块输出: {e}")
+
+    if not _stream_ok:
+        # 兜底：传统分块输出（超轮数 / 流式异常）
+        chunk_size = 8
+        for i in range(0, len(final_content), chunk_size):
+            yield _sse_event({"type": "chunk", "content": final_content[i:i + chunk_size]})
 
     yield _sse_event({"type": "done", "content": final_content})
+
+    # 保存消息（工具轨迹 + 引用来源 + token 用量 —— 此时 final_content 是流式收集的完整内容）
+    total_tokens = total_prompt_tokens + total_completion_tokens
+    await _save_assistant_message(
+        db, conversation_id, final_content, tool_trace, kbs_sources,
+        token_count=total_tokens or None,
+    )

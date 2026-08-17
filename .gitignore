@@ -39,3 +39,10 @@ Thumbs.db
 # ============ 模型缓存（锚定根目录，避免误伤 backend/app/models 源码） ============
 .cache/
 /models/
+
+# ============ 笔试材料（不随仓库提供） ============
+.claude/
+小苏笔试改造计划.md
+招聘笔试题.html
+AI_USAGE.md
+自评.md

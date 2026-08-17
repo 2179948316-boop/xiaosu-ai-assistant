@@ -31,8 +31,10 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ 数据库结构检查失败（应用继续启动）: {e}")
 
     print(f"🚀 {settings.APP_NAME} 启动成功")
-    print(f"📡 Ollama: {settings.OLLAMA_BASE_URL}")
-    print(f"🤖 LLM: {settings.LLM_MODEL}")
+    # LLM 模型名根据当前提供商动态获取
+    llm_model = (settings.MINIMAX_LLM_MODEL if settings.LLM_PROVIDER == "minimax"
+                 else settings.DEEPSEEK_LLM_MODEL)
+    print(f"🤖 LLM: {settings.LLM_PROVIDER} / {llm_model}")
     print(f"📐 Embedding: {settings.EMBEDDING_MODEL}")
     print(f"💾 Redis: {settings.REDIS_URL} (cache={'on' if settings.REDIS_CACHE_ENABLED else 'off'})")
     print(f"🔄 Reranker: Cross-Encoder (bge-reranker-v2-m3, 首次使用时自动加载)")

@@ -133,7 +133,7 @@ async def run_evaluation(
             answer_relevancy,
         )
         from datasets import Dataset
-        from evaluation.ragas_adapters import OllamaLLM, OllamaEmbeddings
+        from evaluation.ragas_adapters import RagasLLM, RagasEmbeddings
 
         eval_dataset = Dataset.from_dict({
             "question": questions,
@@ -153,8 +153,8 @@ async def run_evaluation(
         results = evaluate(
             eval_dataset,
             metrics=[context_precision, context_recall, faithfulness, answer_relevancy],
-            llm=OllamaLLM(),
-            embeddings=OllamaEmbeddings(),
+            llm=RagasLLM(),
+            embeddings=RagasEmbeddings(),
             run_config=run_config,
         )
 

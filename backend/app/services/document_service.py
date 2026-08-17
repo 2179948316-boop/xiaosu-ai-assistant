@@ -89,6 +89,9 @@ async def process_document_upload(
             await db.commit()
             raise ValueError("文件内容为空，无法解析")
 
+        # 3.5 缓存解析后的全文（用于来源预览跳转高亮）
+        _save_parsed_text(text, upload_dir, file.filename)
+
         # 4. 文本切片
         chunks = split_text(text, chunk_size=500, chunk_overlap=50, doc_id=doc.id, filename=file.filename)
 
@@ -164,6 +167,15 @@ async def delete_document(db: AsyncSession, doc_id: int, user_id: int = None):
     await db.delete(doc)
     await db.commit()
 
+    # 清理缓存的解析文本
+    try:
+        upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "uploads", str(kb_id))
+        parsed_path = os.path.join(upload_dir, f"{doc.filename}.parsed.txt")
+        if os.path.exists(parsed_path):
+            os.remove(parsed_path)
+    except Exception:
+        pass
+
     # 刷新 BM25 索引（文档删除后重建）
     bm25_service.invalidate_cache(kb_id)
     try:
@@ -177,6 +189,16 @@ async def delete_document(db: AsyncSession, doc_id: int, user_id: int = None):
         await invalidate_kb_cache(kb_id)
     except Exception:
         pass
+
+
+def _save_parsed_text(text: str, upload_dir: str, filename: str) -> None:
+    """缓存解析后的全文到磁盘（用于文档预览）。失败不中断主流程。"""
+    try:
+        parsed_path = os.path.join(upload_dir, f"{filename}.parsed.txt")
+        with open(parsed_path, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception as e:
+        logger.warning(f"缓存解析文本失败（不影响上传）: {e}")
 
 
 async def get_documents_by_kb(db: AsyncSession, kb_id: int, user_id: int) -> List[Document]:

@@ -88,7 +88,7 @@ async def main():
         from ragas.metrics import context_precision, context_recall, faithfulness, answer_relevancy
         from ragas.run_config import RunConfig
         from datasets import Dataset
-        from evaluation.ragas_adapters import OllamaLLM, OllamaEmbeddings
+        from evaluation.ragas_adapters import RagasLLM, RagasEmbeddings
 
         eval_dataset = Dataset.from_dict({
             "question": questions,
@@ -101,8 +101,8 @@ async def main():
         results = evaluate(
             eval_dataset,
             metrics=[context_precision, context_recall, faithfulness, answer_relevancy],
-            llm=OllamaLLM(model="deepseek-r1:1.5b"),
-            embeddings=OllamaEmbeddings(),
+            llm=RagasLLM(),
+            embeddings=RagasEmbeddings(),
             run_config=run_config,
         )
         # RAGAS 0.4.x 返回 EvaluationResult，不能直接 dict()

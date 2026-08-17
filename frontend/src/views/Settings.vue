@@ -21,9 +21,20 @@
         </template>
         <div class="setting-row">
           <span class="setting-label">LLM 提供商</span>
-          <el-tag size="small" :type="settings.llm_provider === 'openai' ? 'success' : 'info'">
-            {{ settings.llm_provider === 'openai' ? 'OpenAI 兼容 API' : 'Ollama 本地' }}
+          <el-tag size="small" :type="settings.llm_provider === 'minimax' ? 'success' : 'warning'">
+            {{ settings.llm_provider === 'minimax' ? 'MiniMax' : 'DeepSeek' }}
           </el-tag>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">切换提供商</span>
+          <el-select
+            v-model="selectedProvider"
+            placeholder="选择提供商"
+            style="width: 260px"
+          >
+            <el-option label="MiniMax" value="minimax" />
+            <el-option label="DeepSeek" value="deepseek" />
+          </el-select>
         </div>
         <div class="setting-row">
           <span class="setting-label">当前模型</span>
@@ -46,14 +57,14 @@
           <el-button
             type="primary"
             :loading="saving"
-            :disabled="!selectedModel || selectedModel === settings.llm_model"
+            :disabled="!selectedModel || (selectedModel === settings.llm_model && selectedProvider === settings.llm_provider)"
             @click="handleSaveModel"
           >
             保存并切换
           </el-button>
         </div>
         <p class="card-tip">
-          切换后写入 backend/.env（{{ settings.llm_provider === 'openai' ? 'OPENAI_LLM_MODEL' : 'LLM_MODEL' }}），
+          切换后写入 backend/.env（{{ selectedProvider === 'minimax' ? 'MINIMAX_LLM_MODEL' : 'DEEPSEEK_LLM_MODEL' }}），
           重启服务依然生效；白名单可在 .env 的 LLM_MODEL_WHITELIST 中调整。
         </p>
       </el-card>
@@ -104,6 +115,7 @@ import { getAdminSettings, updateAdminSettings } from '../api/admin'
 
 const settings = ref({ llm_provider: '', llm_model: '', model_whitelist: [], feishu: {}, bot: {} })
 const selectedModel = ref('')
+const selectedProvider = ref('minimax')
 const saving = ref(false)
 
 const botConnected = computed(() => !!settings.value.bot?.connected)
@@ -112,14 +124,18 @@ async function loadSettings() {
   try {
     settings.value = await getAdminSettings()
     selectedModel.value = settings.value.llm_model
+    selectedProvider.value = settings.value.llm_provider
   } catch (e) {}
 }
 
 async function handleSaveModel() {
   saving.value = true
   try {
-    const res = await updateAdminSettings({ llm_model: selectedModel.value })
-    ElMessage.success(`已切换模型：${res.llm_model}`)
+    const res = await updateAdminSettings({
+      llm_model: selectedModel.value,
+      llm_provider: selectedProvider.value,
+    })
+    ElMessage.success(`已切换 ${res.llm_provider === 'minimax' ? 'MiniMax' : 'DeepSeek'}：${res.llm_model}`)
     await loadSettings()
   } catch (e) {
   } finally {

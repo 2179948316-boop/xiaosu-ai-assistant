@@ -34,7 +34,6 @@
         :auto-upload="false"
         :on-change="handleFileChange"
         :file-list="fileList"
-        :limit="5"
         accept=".pdf,.docx,.html,.htm,.txt,.md,.markdown"
         multiple
         drag
@@ -63,7 +62,22 @@
 
     <!-- 文档列表 -->
     <div class="documents-list" v-if="selectedKbId">
-      <el-table :data="documents" stripe style="width: 100%">
+      <!-- 批量操作栏 -->
+      <div class="batch-bar" v-if="selectedDocIds.length > 0">
+        <span class="batch-info">已选择 {{ selectedDocIds.length }} 项</span>
+        <el-button type="danger" :icon="Delete" :loading="batchDeleting" @click="handleBatchDelete">
+          批量删除
+        </el-button>
+      </div>
+
+      <el-table
+        ref="tableRef"
+        :data="documents"
+        stripe
+        style="width: 100%"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="40" />
         <el-table-column prop="filename" label="文件名" min-width="200" />
         <el-table-column prop="file_type" label="类型" width="80" align="center">
           <template #default="{ row }">
@@ -147,7 +161,7 @@ import { ArrowLeft, Plus, Delete, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getKnowledgeBases, createKnowledgeBase,
-  uploadDocument, getDocuments, deleteDocument
+  uploadDocument, getDocuments, deleteDocument, batchDeleteDocuments
 } from '../api/document'
 import { getOrganizations } from '../api/organization'
 
@@ -162,6 +176,13 @@ const showCreateKb = ref(false)
 const creatingKb = ref(false)
 const newKb = ref({ name: '', description: '', org_id: null })
 const uploadRef = ref(null)
+const tableRef = ref(null)
+const selectedDocIds = ref([])
+const batchDeleting = ref(false)
+
+function handleSelectionChange(selection) {
+  selectedDocIds.value = selection.map(s => s.id)
+}
 
 async function loadKnowledgeBases() {
   try {
@@ -227,6 +248,29 @@ async function handleDeleteDoc(doc) {
     ElMessage.success('文档已删除')
     await Promise.all([loadDocuments(), loadKnowledgeBases()])
   } catch (e) {}
+}
+
+async function handleBatchDelete() {
+  if (selectedDocIds.value.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedDocIds.value.length} 个文档？`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    batchDeleting.value = true
+    const res = await batchDeleteDocuments(selectedDocIds.value)
+    ElMessage.success(res.message || `成功删除 ${selectedDocIds.value.length} 个文档`)
+    selectedDocIds.value = []
+    if (tableRef.value) tableRef.value.clearSelection()
+    await Promise.all([loadDocuments(), loadKnowledgeBases()])
+  } catch (e) {
+    if (e?.code !== 'cancel') {
+      ElMessage.error('批量删除失败')
+    }
+  } finally {
+    batchDeleting.value = false
+  }
 }
 
 async function handleCreateKb() {
@@ -351,5 +395,21 @@ async function loadOrganizations() {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #fff7e6;
+  border: 1px solid #ffe7a3;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.batch-info {
+  font-size: 14px;
+  color: #e6a23c;
 }
 </style>

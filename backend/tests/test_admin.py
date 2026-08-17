@@ -80,20 +80,20 @@ class TestHeartbeat:
 
 class TestSettingsUpdate:
     def test_reject_non_whitelist_model(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(admin.settings, "LLM_MODEL_WHITELIST", "deepseek-r1:1.5b")
+        monkeypatch.setattr(admin.settings, "LLM_MODEL_WHITELIST", "MiniMax-Text-01")
         with pytest.raises(HTTPException) as exc:
             asyncio_run(admin.update_admin_settings(admin.SettingsUpdate(llm_model="gpt-4")))
         assert exc.value.status_code == 400
 
     def test_write_existing_key(self, tmp_path, monkeypatch):
         env_file = tmp_path / ".env"
-        env_file.write_text("LLM_MODEL=old-model\nFEISHU_APP_ID=x\n", encoding="utf-8")
+        env_file.write_text("MINIMAX_LLM_MODEL=old-model\nFEISHU_APP_ID=x\n", encoding="utf-8")
         monkeypatch.setattr(admin, "_ENV_FILE", str(env_file))
-        monkeypatch.setattr(admin.settings, "LLM_MODEL_WHITELIST", "deepseek-r1:1.5b,MiniMax-Text-01")
+        monkeypatch.setattr(admin.settings, "LLM_MODEL_WHITELIST", "MiniMax-Text-01,deepseek-chat")
         asyncio_run(admin.update_admin_settings(
-            admin.SettingsUpdate(llm_model="deepseek-r1:1.5b"), _user("boss", is_admin=True)))
+            admin.SettingsUpdate(llm_model="MiniMax-Text-01"), _user("boss", is_admin=True)))
         content = env_file.read_text(encoding="utf-8")
-        assert "LLM_MODEL=deepseek-r1:1.5b\n" in content
+        assert "MINIMAX_LLM_MODEL=MiniMax-Text-01\n" in content
         assert "FEISHU_APP_ID=x" in content  # 其他键不受影响
 
     def test_append_missing_key(self, tmp_path, monkeypatch):
@@ -104,10 +104,21 @@ class TestSettingsUpdate:
         asyncio_run(admin.update_admin_settings(
             admin.SettingsUpdate(llm_model="MiniMax-Text-01"), _user("boss", is_admin=True)))
         content = env_file.read_text(encoding="utf-8")
-        # 写入的键取决于当前 provider（openai → OPENAI_LLM_MODEL，ollama → LLM_MODEL）
-        target_key = "OPENAI_LLM_MODEL" if admin.settings.LLM_PROVIDER == "openai" else "LLM_MODEL"
-        assert f"{target_key}=MiniMax-Text-01\n" in content
+        # 默认 provider 为 minimax，所以写入 MINIMAX_LLM_MODEL
+        assert "MINIMAX_LLM_MODEL=MiniMax-Text-01\n" in content
         assert "FEISHU_APP_ID=x" in content  # 其他键不受影响
+
+    def test_write_deepseek_model(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text("FEISHU_APP_ID=x\n", encoding="utf-8")
+        monkeypatch.setattr(admin, "_ENV_FILE", str(env_file))
+        monkeypatch.setattr(admin.settings, "LLM_MODEL_WHITELIST", "MiniMax-Text-01,deepseek-chat")
+        asyncio_run(admin.update_admin_settings(
+            admin.SettingsUpdate(llm_provider="deepseek", llm_model="deepseek-chat"),
+            _user("boss", is_admin=True)))
+        content = env_file.read_text(encoding="utf-8")
+        assert "DEEPSEEK_LLM_MODEL=deepseek-chat\n" in content
+        assert "LLM_PROVIDER=deepseek\n" in content
 
 
 class TestAdminLogs:

@@ -12,6 +12,7 @@
 依赖 .env 中的 FEISHU_APP_ID / FEISHU_APP_SECRET。
 """
 import asyncio
+import atexit
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from datetime import datetime
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
     P2ImMessageReceiveV1,
+    P2ImMessageMessageReadV1,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
 )
@@ -66,6 +68,35 @@ def _start_heartbeat() -> None:
 def _run_loop() -> None:
     asyncio.set_event_loop(_loop)
     _loop.run_forever()
+
+
+def _acquire_single_instance_lock() -> int:
+    """跨进程文件锁：防止 bot_service 重复启动（飞书 WebSocket 多开会双发回复）。
+    锁文件 data/bot.lock（仓库根），进程退出时通过 atexit 自动释放；强制杀进程由 OS 回收。"""
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # backend/
+    lock_path = os.path.join(backend_dir, "data", "bot.lock")
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError):
+        os.close(fd)
+        logger.error(
+            "已有 bot_service 实例在运行，拒绝重复启动。"
+            "如确认旧实例已退出，请删除 data/bot.lock（仓库根）后重试。"
+        )
+        raise SystemExit(2)
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, f"{os.getpid()}\n".encode())
+    except Exception:
+        pass
+    return fd
 
 
 def _send_reply(message_id: str, msg_type: str, content: str) -> None:
@@ -157,12 +188,34 @@ def _on_message_receive(data: P2ImMessageReceiveV1) -> None:
         logger.exception(f"事件处理失败: {e}")
 
 
+def _on_message_read(data: P2ImMessageMessageReadV1) -> None:
+    """消息已读事件：no-op handler，仅注册避免 SDK 找不到处理器时刷 'processor not found' 错误日志。"""
+    pass
+
+
 def main() -> None:
     if not settings.FEISHU_APP_ID or not settings.FEISHU_APP_SECRET:
         logger.error(
             "缺少飞书凭据：请在 backend/.env 配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET"
         )
         raise SystemExit(1)
+
+    # 单实例锁：防止重复启动（飞书 WebSocket 长连接多开会向所有连接广播消息，导致双发回复）
+    lock_fd = _acquire_single_instance_lock()
+
+    def _release_lock() -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(lock_fd, msvcrt.LK_UNLCK, 1)
+        except Exception:
+            pass
+        try:
+            os.close(lock_fd)
+        except Exception:
+            pass
+
+    atexit.register(_release_lock)
 
     # 启动专用事件循环线程
     threading.Thread(target=_run_loop, name="bot-asyncio-loop", daemon=True).start()
@@ -175,11 +228,19 @@ def main() -> None:
     except Exception as e:
         logger.warning(f"数据库结构检查失败（机器人继续启动）: {e}")
 
-    # 装配事件分发器：订阅 im.message.receive_v1
-    event_handler = lark.EventDispatcherHandler.builder(
-        settings.FEISHU_ENCRYPT_KEY,
-        settings.FEISHU_VERIFICATION_TOKEN,
-    ).register_p2_im_message_receive_v1(_on_message_receive).build()
+    # 装配事件分发器：
+    #   im.message.receive_v1  → 处理用户消息
+    #   im.message.message_read_v1 → no-op handler（已读事件对问答无意义，
+    #     但不注册 SDK 会刷 'processor not found' 错误日志）
+    event_handler = (
+        lark.EventDispatcherHandler.builder(
+            settings.FEISHU_ENCRYPT_KEY,
+            settings.FEISHU_VERIFICATION_TOKEN,
+        )
+        .register_p2_im_message_receive_v1(_on_message_receive)
+        .register_p2_im_message_message_read_v1(_on_message_read)
+        .build()
+    )
 
     # 长连接客户端（自动重连）
     ws_client = lark.ws.Client(

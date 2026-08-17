@@ -72,35 +72,26 @@ class TestDatasetFormat:
 class TestRagasAdapters:
     """RAGAS 适配器测试"""
 
-    def test_ollama_llm_init(self):
-        """OllamaLLM 初始化不报错"""
-        from evaluation.ragas_adapters import OllamaLLM
-        llm = OllamaLLM()
-        assert llm.model is not None
-        assert llm.base_url is not None
+    def test_ragas_llm_init(self):
+        """RagasLLM 初始化不报错"""
+        from evaluation.ragas_adapters import RagasLLM
+        llm = RagasLLM()
+        assert llm is not None
 
-    def test_ollama_embeddings_init(self):
-        """OllamaEmbeddings 初始化不报错"""
-        from evaluation.ragas_adapters import OllamaEmbeddings
-        emb = OllamaEmbeddings()
-        assert emb.model is not None
-        assert emb.base_url is not None
+    def test_ragas_embeddings_init(self):
+        """RagasEmbeddings 初始化不报错"""
+        from evaluation.ragas_adapters import RagasEmbeddings
+        emb = RagasEmbeddings()
+        assert emb is not None
 
     @pytest.mark.asyncio
-    async def test_ollama_llm_agenerate(self):
-        """OllamaLLM 异步生成调用"""
-        from evaluation.ragas_adapters import OllamaLLM
-        llm = OllamaLLM()
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            from unittest.mock import MagicMock
-            mock_response = MagicMock()
-            mock_response.json.return_value = {"message": {"content": "回答"}}
-            mock_response.raise_for_status = lambda: None
-            mock_client = AsyncMock()
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
+    async def test_ragas_llm_agenerate(self):
+        """RagasLLM 异步生成调用"""
+        from evaluation.ragas_adapters import RagasLLM
+        from app.services.llm_service import chat_complete
 
+        llm = RagasLLM()
+        with patch("evaluation.ragas_adapters.chat_complete", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = "回答"
             result = await llm.agenerate("测试问题")
             assert result == "回答"
